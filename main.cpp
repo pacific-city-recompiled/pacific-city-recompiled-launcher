@@ -149,11 +149,11 @@ int main(int argc,char** argv) {
     std::ofstream out(probe); if(!out) throw std::runtime_error("Extract the ZIP into a writable folder, such as Downloads or Documents");
     out<<"probe"; out.close(); if(!out) throw std::runtime_error("Cannot write next to the launcher"); fs::remove(probe);
   } catch(const std::exception& e) { error=e.what(); writable=false; }
-  std::string game_version;  // installed release of the selected game (Crackdown 1: the launcher's own version)
+  std::string game_version;  // installed release of the selected game (combined Crackdown 1: the launcher's own version)
   // Everything read from the selected game's settings file and manifest; rerun when the game changes.
   auto read_game=[&] {
   config=ghome/gp->config; manifest.clear();
-  game_version=gp->updates==&cd1_updates?std::string(LAUNCHER_VERSION):installed_version(ghome,*gp->updates);
+  game_version=gp->updates==&cd1_updates&&kSingleGame<0?std::string(LAUNCHER_VERSION):installed_version(ghome,*gp->updates);
   try {
     auto t=read_config(config);
     std::string configured=value<std::string>(t,"game_data_root","");
@@ -593,7 +593,7 @@ int main(int argc,char** argv) {
       }
       // A separate focusable card, reachable by D-pad/keyboard as well as mouse.
       if(gp->steam) ImGui::SetCursorPos({std::max(0.f,ImGui::GetContentRegionAvail().x-330*ui_scale),std::max(0.f,ImGui::GetWindowHeight()-90*ui_scale)});
-      ImGui::BeginDisabled(blocked); if(gp->steam&&ImGui::Button("Add Crackdown to Steam",{310*ui_scale,48*ui_scale})) { try { report=add_to_steam(home/"CrackdownLauncher.exe"); error.clear(); } catch(const std::exception& e) { error=e.what(); } } ImGui::EndDisabled();
+      ImGui::BeginDisabled(blocked); if(gp->steam&&ImGui::Button("Add Crackdown to Steam",{310*ui_scale,48*ui_scale})) { try { report=add_to_steam(home/(kSingleGame==0?"CrackdownRecomp.exe":"CrackdownLauncher.exe")); error.clear(); } catch(const std::exception& e) { error=e.what(); } } ImGui::EndDisabled();
     }
     if(tab>=1&&tab<=4) {
       ImGui::BeginDisabled(blocked); if(tab!=4) focus_first(!blocked);
@@ -780,7 +780,7 @@ int main(int argc,char** argv) {
       ImGui::TextWrapped("Standalone front end using SDL3, Dear ImGui, toml++ and stb_image. Barlow fonts: SIL OFL 1.1. Controller prompts: CC0. Game art comes from your verified files.");
       focus_first(); if(ImGui::Button("Open licenses")) { try { show_folder(home/"LICENSES"); } catch(const std::exception& e) { error=e.what(); } }
       ImGui::SameLine(); ImGui::BeginDisabled(!online_authorized&&kSingleGame<0); if(ImGui::Button("Open repository")) { auto url=project_url(*gp->updates); if(!SDL_OpenURL(url.c_str())) error=SDL_GetError(); } ImGui::EndDisabled();
-      if(ImGui::Button("Open logs folder")) { try { fs::create_directories(home/"logs"); show_folder(home/"logs"); } catch(const std::exception& e) { error=e.what(); } }
+      if(ImGui::Button("Open logs folder")) { try { fs::create_directories(ghome/"logs"); show_folder(ghome/"logs"); } catch(const std::exception& e) { error=e.what(); } }
       ImGui::SameLine(); if(ImGui::Button("Copy system info")) {
         try { report="Launcher: " LAUNCHER_VERSION "\n"+system_info()+"Game XEX SHA256: "+hash+"\nSave profile: "+(profile.empty()?"default":profile)+"\ncrackdown.toml:\n"+redacted_config(config); if(!SDL_SetClipboardText(report.c_str())) error=SDL_GetError(); }
         catch(const std::exception& e) { error=e.what(); }
