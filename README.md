@@ -16,7 +16,8 @@ Archipelago and co-op. It ships no game data; players supply their own dump.
 The single-game builds sit at the top of that game's release package, the one app launchers such as
 [Quiver](https://github.com/tgeorgiadis/quiver-launcher) install. Quiver starts the only exe at the top of the
 install folder and updates the package itself, so these builds have no game selector and no update checks.
-Crackdown 2's runtime goes in `cd2\` next to the launcher (Crackdown 1's at the top).
+The game goes in a subfolder next to the launcher (`cd1\` or `cd2\`), so the launcher is the only exe at the top.
+The combined launcher keeps Crackdown 1 at the top of its folder and Crackdown 2 in `cd2\`.
 
 Dependencies (SDL3, Dear ImGui, toml++, stb, SHA-256/SHA-1) come from either game's ReXGlue SDK checkout:
 

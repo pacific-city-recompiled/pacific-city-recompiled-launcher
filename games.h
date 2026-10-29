@@ -1,6 +1,7 @@
 #pragma once
 // The games this launcher manages. Crackdown 1 keeps the package root as its folder (existing installs need no
-// migration); Crackdown 2 lives in cd2/ with its own exe, SDK DLLs, settings, manifest and game files, because its
+// migration), except in its single-game build, where it lives in cd1/ so that the launcher is the only exe at the
+// top. Crackdown 2 lives in cd2/ with its own exe, SDK DLLs, settings, manifest and game files, because its
 // runtime DLLs differ from Crackdown 1's (separate SDK patch set) and share their names.
 #include "core.h"
 #include "v2.h"
@@ -30,12 +31,20 @@ struct GameProfile {
   const char* update_exe;
 };
 
+// Single-game build (CMake LAUNCHER_GAME=cd1|cd2): the launcher an app launcher such as Quiver opens, at the top of
+// that game's release package. Quiver installs and updates the package, so this build has no game selector, no
+// update checks and no runtime download. -1: the combined launcher.
+#ifdef LAUNCHER_SINGLE_GAME
+inline constexpr int kSingleGame = LAUNCHER_SINGLE_GAME;
+#else
+inline constexpr int kSingleGame = -1;
+#endif
 // Crackdown 2: World multi-language disc (XGD2), default.xex sha256 below. It runs with title update 0.0.5.1
 // applied: default.xexp next to default.xex and the update's files in tu/ (passed as --update_data_root); the
 // launcher installs both from the update package (content.cpp). See the gitlab.com/pacific-city-recompiled/crackdown-2-recomp README.
 inline constexpr GameProfile kGames[] = {
-    {"cd1", "CRACKDOWN", "", "crackdown.exe", "crackdown.toml", "game-manifest.txt", "crackdown", "crackdown_",
-     supported_xex, "profile", "Select your supported World multi-language disc image or an extracted game folder.",
+    {"cd1", "CRACKDOWN", kSingleGame == 0 ? "cd1" : "", "crackdown.exe", "crackdown.toml", "game-manifest.txt",
+     "crackdown", "crackdown_", supported_xex, "profile", "Select your supported World multi-language disc image or an extracted game folder.",
      true, true, false, true, &cd1_updates, 0x4D5307DC,
      "a0d4fe06d6a4a2fd96d18f5de426f761fe1b8cce5d5bc7f981d738c3519c819e", true, "crackdown_tu.exe"},
     {"cd2", "CRACKDOWN 2", "cd2", "crackdown2.exe", "crackdown2.toml", "game-manifest.txt", "crackdown2",
@@ -46,14 +55,6 @@ inline constexpr GameProfile kGames[] = {
      "a5e49fc1ff7f6f65e6f95a7b5c4b9392bb9e38674d1237ac0e2f0149d05929d7", true, nullptr},
 };
 inline constexpr int kGameCount = int(sizeof(kGames) / sizeof(kGames[0]));
-// Single-game build (CMake LAUNCHER_GAME=cd1|cd2): the launcher an app launcher such as Quiver opens, at the top of
-// that game's release package. Quiver installs and updates the package, so this build has no game selector, no
-// update checks and no runtime download. -1: the combined launcher.
-#ifdef LAUNCHER_SINGLE_GAME
-inline constexpr int kSingleGame = LAUNCHER_SINGLE_GAME;
-#else
-inline constexpr int kSingleGame = -1;
-#endif
 static_assert(kSingleGame < kGameCount);
 // Accepts the profile id or the game's name as the Archipelago clients pass it (--game crackdown2).
 inline int game_index(const std::string& id) {

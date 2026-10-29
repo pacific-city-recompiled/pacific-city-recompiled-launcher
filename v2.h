@@ -51,7 +51,7 @@ void replace_staged(const fs::path& package, const fs::path& staging,
 void recover_update(const fs::path& package, const UpdateSource& source = cd1_updates);
 void rollback_completed_update(const fs::path& package, const UpdateSource& source = cd1_updates);
 // The installed release of a source without the launcher (Crackdown 2): the tag the launcher wrote after
-// installing, else the version in the package's VERSION.txt ("Crackdown 2 Recomp beta 0.5.0" -> v0.5.0-beta).
+// installing, else the version in the package's VERSION.txt ("Crackdown 2 Recomp beta 0.5.0" -> v0.5.0-beta, "1.3.0" -> v1.3.0).
 // Empty when nothing is installed or the version is unknown.
 std::string installed_version(const fs::path& folder, const UpdateSource& source);
 // WinHTTP only; explicit caller consent is required. POSIX throws without networking.

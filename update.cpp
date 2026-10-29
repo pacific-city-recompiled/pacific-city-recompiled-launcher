@@ -363,9 +363,9 @@ std::string installed_version(const fs::path& folder,const UpdateSource& source)
   std::error_code ec;
   if(source.version_file&&fs::is_regular_file(folder/source.version_file,ec)) if(auto tag=valid(line(folder/source.version_file)); !tag.empty()) return tag;
   if(!fs::is_regular_file(folder/"VERSION.txt",ec)) return {};
-  // "<title> beta 0.5.0" (tag v0.5.0-beta) or "<title> 1.0.0" (tag v1.0.0).
+  // "<title> beta 0.5.0" (tag v0.5.0-beta), "<title> 1.0.0" (tag v1.0.0) or Crackdown 1's bare "1.3.0" (tag v1.3.0).
   auto text=line(folder/"VERSION.txt"); auto space=text.rfind(' ');
-  if(space==text.npos) return {};
+  if(space==text.npos) return valid("v"+text);
   bool beta=text.substr(0,space).ends_with(" beta");
   return valid("v"+text.substr(space+1)+(beta?"-beta":""));
 }

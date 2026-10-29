@@ -109,6 +109,7 @@ void cd2(const fs::path& home) {
   write(folder/"crackdown2.exe","old"); write(folder/"crackdown2.toml","settings"); write(folder/"game/default.xex","disc"); write(folder/"tu/default.xexp","update");
   write(folder/"VERSION.txt","\xEF\xBB\xBF" "Crackdown 2 Recomp beta 0.4.0\r\nRepo: x\r\n"); require(installed_version(folder,cd2_updates)=="v0.4.0-beta","VERSION.txt beta version");
   write(folder/"VERSION.txt","Crackdown 2 Recomp 1.0.0\n"); require(installed_version(folder,cd2_updates)=="v1.0.0","VERSION.txt release version");
+  write(folder/"VERSION.txt","1.3.0\r\n"); require(installed_version(folder,cd1_updates)=="v1.3.0","Crackdown 1 bare VERSION.txt");
   write(folder/"release.txt","v0.5.0-beta\n"); require(installed_version(folder,cd2_updates)=="v0.5.0-beta","launcher-written release tag wins");
   for(const auto& name:{"crackdown2.exe","rexruntime.dll","rexgpu-xenos.dll"}) write(stage/name,"new");
   rejects([&]{replace_staged(folder,stage,{},cd2_updates);},"Crackdown 2 package without manifest rejected");
