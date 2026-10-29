@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include "../common/toml_edit.h"
+#include "common/toml_edit.h"
 
 namespace launcher {
 namespace fs = std::filesystem;
