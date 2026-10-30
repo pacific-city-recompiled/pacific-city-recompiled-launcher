@@ -32,6 +32,14 @@ On Windows run it from the x64 Visual Studio environment (`vcvars64.bat`) with L
 
 Headless commands for unattended tests: `--install-iso <iso> <game home>`, `--install-update <package> <game home>`,
 `--install-dlc <package> <save folder>`, `--verify-folder <folder> <manifest> [--full]`, and `--play` (press PLAY
-once the files are verified).
+once the files are verified). `--review-ui <folder> <width> <height> [--game <id>] [--connect <link>]` renders every
+page and dialog offscreen (no window shows) and saves the frames as BMPs, for screenshot reviews.
+
+## Layout
+
+Home has the game's logo, a one-line status, one PLAY button (INSTALL when something is missing) and a status card.
+A new install starts with a short guided setup: disc, then title update, then DLC. Settings are four pages (Display,
+Gameplay, Saves & Archipelago, About) that save on their own; rare and debug options sit under each page's Advanced
+fold.
 
 History before the move is from crackdown-recomp's `crackdown/launcher` folder (kept with `git subtree split`).

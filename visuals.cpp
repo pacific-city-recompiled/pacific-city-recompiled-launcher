@@ -7,6 +7,7 @@
 #define STBI_MAX_DIMENSIONS 4096
 #include <stb_image.h>
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <stdexcept>
 #ifdef _WIN32
@@ -30,6 +31,8 @@ Visuals::Visuals(SDL_Renderer* r,const fs::path& home):renderer_(r),home_(home) 
   auto font=[&](const char* name,float size) { auto file=home_/"assets/fonts"/name; if(!fs::is_regular_file(file)) return static_cast<ImFont*>(nullptr); auto path=utf8(file); return ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(),size); };
   body=font("Barlow-Regular.ttf",22); if(!body) body=ImGui::GetIO().Fonts->AddFontDefault();
   heading=font("BarlowCondensed-Bold.ttf",38); if(!heading) heading=body;
+  title=font("BarlowCondensed-SemiBold.ttf",24); if(!title) title=heading;
+  strong=font("Barlow-SemiBold.ttf",22); if(!strong) strong=body;
   ImGui::GetIO().FontDefault=body;
 }
 Visuals::~Visuals() { clear_art(); for(const auto& [k,t]:glyphs_) if(t) SDL_DestroyTexture(t); }
@@ -92,32 +95,46 @@ void Visuals::load_art(const fs::path& game,const fs::path& user,const std::vect
 }
 void Visuals::backdrop(ImVec2 size) {
   auto* d=ImGui::GetBackgroundDrawList();
-  d->AddRectFilledMultiColor({0,0},size,IM_COL32(15,31,33,255),IM_COL32(8,14,22,255),IM_COL32(4,9,13,255),IM_COL32(8,15,18,255));
+  d->AddRectFilledMultiColor({0,0},size,IM_COL32(14,22,24,255),IM_COL32(8,12,16,255),IM_COL32(4,7,9,255),IM_COL32(9,15,14,255));
   if(background_) {
     auto s=texture_size(background_); float scale=std::max(size.x/s.x,size.y/s.y); ImVec2 drawn{s.x*scale,s.y*scale};
     ImVec2 lo{(size.x-drawn.x)/2,(size.y-drawn.y)/2},hi{lo.x+drawn.x,lo.y+drawn.y}; d->AddImage(id(background_),lo,hi);
-    d->AddRectFilledMultiColor({0,0},size,IM_COL32(5,10,14,235),IM_COL32(5,10,14,100),IM_COL32(5,10,14,150),IM_COL32(5,10,14,245));
+    d->AddRectFilledMultiColor({0,0},size,IM_COL32(5,8,10,200),IM_COL32(5,8,10,120),IM_COL32(5,8,10,170),IM_COL32(5,8,10,235));
+  } else {
+    // No art (yet, or for this game): a soft green glow from the lower left and faint diagonal lines.
+    for(float x=-size.y;x<size.x;x+=56) d->AddLine({x,size.y},{x+size.y,0},IM_COL32(255,255,255,5),1);
+    d->AddRectFilledMultiColor({0,size.y*.45f},{size.x*.7f,size.y},IM_COL32(60,120,30,0),IM_COL32(60,120,30,0),IM_COL32(60,120,30,0),IM_COL32(70,140,30,46));
   }
-  if(agency_) { float edge=std::min(size.y*.48f,360.f); d->AddImage(id(agency_),{size.x-edge-40,120},{size.x-40,120+edge},{0,0},{1,1},IM_COL32(255,255,255,28)); }
+  // The text side stays dark enough to read over any art.
+  d->AddRectFilledMultiColor({0,0},{size.x*.62f,size.y},IM_COL32(3,6,8,170),IM_COL32(3,6,8,0),IM_COL32(3,6,8,0),IM_COL32(3,6,8,170));
+  if(agency_) { float edge=std::min(size.y*.48f,360.f); d->AddImage(id(agency_),{size.x-edge-40,size.y-edge-90},{size.x-40,size.y-90},{0,0},{1,1},IM_COL32(255,255,255,18)); }
 }
-void Visuals::logo(float scale, const char* fallback) {
+void Visuals::logo(float height,const char* fallback) {
   if(logo_) {
-    auto s=texture_size(logo_); float w=220*scale;
+    auto s=texture_size(logo_);
     // The supported source has broad menu-safe margins around its central logo.
-    ImGui::Image(id(logo_),{w,w*(s.y*.70f)/(s.x*.60f)},{.20f,.15f},{.80f,.85f});
+    ImGui::Image(id(logo_),{height*(s.x*.60f)/(s.y*.70f),height},{.20f,.15f},{.80f,.85f});
+    return;
   }
-  else { ImGui::PushFont(heading); ImGui::TextUnformatted(fallback); ImGui::PopFont(); }
-}
-void Visuals::hints(const std::string& device,float scale) {
+  // "CRACKDOWN 2": the sequel number in the accent color.
+  std::string text=fallback; auto space=text.find_last_of(' ');
+  ImGui::PushFont(heading,height/ImGui::GetStyle().FontScaleMain*.62f);
+  if(space!=std::string::npos&&space+1<text.size()&&std::isdigit(static_cast<unsigned char>(text[space+1]))) {
+    ImGui::TextUnformatted(text.substr(0,space).c_str()); ImGui::SameLine(0,ImGui::GetFontSize()*.22f);
+    ImGui::TextColored({.45f,.78f,.18f,1},"%s",text.substr(space+1).c_str());
+  } else ImGui::TextUnformatted(text.c_str());
+  ImGui::PopFont();
+}void Visuals::hints(const std::string& device,float scale) {
   float width=4*(28*scale+5*scale)+3*ImGui::GetStyle().ItemSpacing.x;
-  for(const char* label:{"Select","Back","Previous tab","Next tab"}) width+=ImGui::CalcTextSize(label).x;
+  for(const char* label:{"Select","Back","Previous page","Next page"}) width+=ImGui::CalcTextSize(label).x;
   ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(),ImGui::GetWindowWidth()-ImGui::GetStyle().WindowPadding.x-width));
+  const float base=ImGui::GetCursorPosY(), text_y=base+(28*scale-ImGui::GetTextLineHeight())*.5f;
   auto hint=[&](const char* pad,const char* key,const char* label) {
     std::string path=device+"/"+(device=="keyboard"?key:pad)+".png";
     if(!glyphs_.contains(path)) { try { glyphs_[path]=decode(read_bytes(home_/"assets/glyphs"/fs::u8path(path),1024*1024)); } catch(...) { glyphs_[path]=nullptr; } }
-    if(auto* t=glyphs_[path]) { ImGui::Image(id(t),{28*scale,28*scale}); ImGui::SameLine(0,5*scale); }
-    ImGui::TextUnformatted(label);
+    if(auto* t=glyphs_[path]) { ImGui::SetCursorPosY(base); ImGui::Image(id(t),{28*scale,28*scale}); ImGui::SameLine(0,6*scale); }
+    ImGui::SetCursorPosY(text_y); ImGui::TextUnformatted(label);
   };
-  hint("a","Enter","Select"); ImGui::SameLine(); hint("b","Escape","Back"); ImGui::SameLine(); hint("lb","Q","Previous tab"); ImGui::SameLine(); hint("rb","E","Next tab");
+  hint("a","Enter","Select"); ImGui::SameLine(); hint("b","Escape","Back"); ImGui::SameLine(); hint("lb","Q","Previous page"); ImGui::SameLine(); hint("rb","E","Next page");
 }
 }

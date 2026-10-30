@@ -12,10 +12,14 @@ class Visuals {
   void load_art(const fs::path& game,const fs::path& user,const std::vector<Entry>& manifest);
   void clear_art();
   void backdrop(ImVec2 size);
-  void logo(float scale, const char* fallback = "CRACKDOWN");
+  // The game's logo from its verified files, height in pixels; without art, the title in the heading font.
+  void logo(float height,const char* fallback);
+  bool has_logo() const { return logo_!=nullptr; }
   void hints(const std::string& device,float scale);
   ImFont* heading=nullptr;
   ImFont* body=nullptr;
+  ImFont* title=nullptr;   // section titles and page tabs (Barlow Condensed SemiBold)
+  ImFont* strong=nullptr;  // emphasis in body text (Barlow SemiBold)
   std::string art_status;
  private:
   SDL_Renderer* renderer_;

@@ -36,6 +36,39 @@ struct Task {
   void message(std::string s) { std::lock_guard lock(mutex); status=std::move(s); }
 };
 template<class T> T value(const toml::table& t,const char* key,T fallback) { auto n=setting(t,key); return n?n->value<T>().value_or(fallback):fallback; }
+// One theme for every page: dark glass panels over the game art, with the Xbox 360 green as the accent.
+constexpr ImVec4 kAccent{.45f,.78f,.18f,1},kAccentHover{.53f,.86f,.25f,1},kAccentDeep{.31f,.60f,.10f,1};
+constexpr ImVec4 kText{.93f,.95f,.94f,1},kMuted{.63f,.68f,.67f,1},kWarn{.98f,.73f,.25f,1},kError{.97f,.45f,.40f,1};
+constexpr ImVec4 kPanel{.035f,.05f,.06f,.84f};
+void apply_theme(ImGuiStyle& st,float s) {
+  st.WindowPadding={40*s,20*s}; st.ItemSpacing={12*s,12*s}; st.ItemInnerSpacing={10*s,8*s}; st.FramePadding={14*s,9*s};
+  st.CellPadding={10*s,7*s}; st.FrameRounding=6*s; st.WindowRounding=10*s; st.ChildRounding=10*s; st.PopupRounding=8*s;
+  st.GrabRounding=6*s; st.ScrollbarRounding=6*s; st.ScrollbarSize=12*s; st.GrabMinSize=18*s;
+  st.FrameBorderSize=0; st.ChildBorderSize=1; st.PopupBorderSize=1; st.WindowBorderSize=1;
+  auto* c=st.Colors;
+  c[ImGuiCol_Text]=kText; c[ImGuiCol_TextDisabled]=kMuted;
+  c[ImGuiCol_WindowBg]={.05f,.07f,.08f,.97f}; c[ImGuiCol_ChildBg]={0,0,0,0}; c[ImGuiCol_PopupBg]={.06f,.08f,.09f,.99f};
+  c[ImGuiCol_Border]={1,1,1,.09f}; c[ImGuiCol_ModalWindowDimBg]={0,0,0,.62f};
+  c[ImGuiCol_FrameBg]={.12f,.15f,.16f,.94f}; c[ImGuiCol_FrameBgHovered]={.17f,.21f,.22f,1}; c[ImGuiCol_FrameBgActive]={.20f,.25f,.26f,1};
+  c[ImGuiCol_Button]={.13f,.16f,.17f,.94f}; c[ImGuiCol_ButtonHovered]={.20f,.24f,.25f,1}; c[ImGuiCol_ButtonActive]={.25f,.30f,.31f,1};
+  c[ImGuiCol_Header]={.45f,.78f,.18f,.20f}; c[ImGuiCol_HeaderHovered]={.45f,.78f,.18f,.30f}; c[ImGuiCol_HeaderActive]={.45f,.78f,.18f,.40f};
+  c[ImGuiCol_CheckMark]=kAccent; c[ImGuiCol_SliderGrab]=kAccent; c[ImGuiCol_SliderGrabActive]=kAccentHover;
+  c[ImGuiCol_NavCursor]=kAccentHover; c[ImGuiCol_Separator]={1,1,1,.10f}; c[ImGuiCol_TableBorderLight]={1,1,1,.06f};
+  c[ImGuiCol_ScrollbarBg]={0,0,0,0}; c[ImGuiCol_ScrollbarGrab]={1,1,1,.14f}; c[ImGuiCol_ScrollbarGrabHovered]={1,1,1,.22f}; c[ImGuiCol_ScrollbarGrabActive]={1,1,1,.30f};
+  c[ImGuiCol_PlotHistogram]=kAccent; c[ImGuiCol_TextSelectedBg]={.45f,.78f,.18f,.35f};
+  c[ImGuiCol_TitleBg]=c[ImGuiCol_TitleBgActive]={.06f,.08f,.09f,1};
+}
+// Status marks drawn with the draw list (no icon font): a filled circle with a check or "!", or an empty ring.
+enum class Mark { ok, warn, bad, off };
+void mark(Mark m,float s) {
+  auto* dl=ImGui::GetWindowDrawList(); auto p=ImGui::GetCursorScreenPos(); float r=8.5f*s, line=ImGui::GetTextLineHeight();
+  ImVec2 c{p.x+r,p.y+line*.5f};
+  ImU32 color=ImGui::GetColorU32(m==Mark::ok?kAccent:m==Mark::warn?kWarn:m==Mark::bad?kError:kMuted), ink=ImGui::GetColorU32(ImVec4{.03f,.05f,.04f,1});
+  if(m==Mark::off) dl->AddCircle(c,r-.75f*s,color,0,1.5f*s); else dl->AddCircleFilled(c,r,color);
+  if(m==Mark::ok) { ImVec2 pts[]={{c.x-r*.45f,c.y+r*.02f},{c.x-r*.1f,c.y+r*.37f},{c.x+r*.48f,c.y-r*.36f}}; dl->AddPolyline(pts,3,ink,0,2.f*s); }
+  else if(m!=Mark::off) { dl->AddLine({c.x,c.y-r*.52f},{c.x,c.y+r*.12f},ink,2.2f*s); dl->AddCircleFilled({c.x,c.y+r*.46f},1.3f*s,ink); }
+  ImGui::Dummy({r*2,line}); ImGui::SameLine(0,9*s);
+}
 }
 int main(int argc,char** argv) {
   // Headless diagnostic paths exercise exactly the core used by the UI.
@@ -76,7 +109,8 @@ int main(int argc,char** argv) {
       return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
   }
-  bool review=argc==5 && std::string(argv[1])=="--review-ui";
+  // --review-ui <dir> <width> <height> [--game <id>] [--connect <link>]: saves frames of every page and dialog.
+  bool review=argc>=5 && std::string(argv[1])=="--review-ui";
   fs::path review_dir;
   int review_width=1280,review_height=720;
   if(review) {
@@ -108,9 +142,12 @@ int main(int argc,char** argv) {
   }
   auto show_folder=[](const fs::path& dir) { open_folder(dir,[](const char* url){return SDL_OpenURL(url);}); };
   float initial_dpi=std::max(1.f,SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()));
-  SDL_Window* window=SDL_CreateWindow("Crackdown Recomp",int(1280*initial_dpi),int(720*initial_dpi),SDL_WINDOW_RESIZABLE|SDL_WINDOW_HIGH_PIXEL_DENSITY);
+  // --review-ui draws into an offscreen texture of a hidden window: no window shows up or takes focus.
+  SDL_Window* window=SDL_CreateWindow("Crackdown Recomp",int(1280*initial_dpi),int(720*initial_dpi),SDL_WINDOW_RESIZABLE|SDL_WINDOW_HIGH_PIXEL_DENSITY|(review?SDL_WINDOW_HIDDEN:0));
   SDL_Renderer* renderer=window?SDL_CreateRenderer(window,nullptr):nullptr;
   if(!renderer) { std::cerr<<SDL_GetError(); SDL_Quit(); return 1; }
+  SDL_Texture* review_target=review?SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_TARGET,review_width,review_height):nullptr;
+  if(review&&!review_target) { std::cerr<<SDL_GetError(); SDL_Quit(); return 1; }
   SDL_SetWindowMinimumSize(window,960,600);
   SDL_SetRenderVSync(renderer,1);
   ImGui::CreateContext(); ImGui::StyleColorsDark();
@@ -270,14 +307,19 @@ int main(int argc,char** argv) {
     });
   };
   bool busy=false;
+  // First run: a short guided setup (disc, then title update, then DLC) until the player finishes or skips it.
+  auto first_run=[&] { return writable&&!manifest.empty()&&fs::is_regular_file(ghome/gp->exe)&&!fs::is_directory(game); };
+  bool setup=first_run(),tu_skipped=false;
   if(writable && !manifest.empty() && fs::is_directory(game)) { begin(game,Job::quick_check); busy=true; }
   auto leftovers=writable?unfinished_imports(ghome,game):std::vector<fs::path>{};
   if(review) SDL_SetWindowSize(window,review_width,review_height);
-  const char* tabs[]={"HOME","DISPLAY","GRAPHICS","GAMEPLAY","CONTROLS","SAVES","ARCHIPELAGO","ABOUT"};
-  constexpr int tab_count=8, tab_ap=6, tab_about=7;
-  if(ap_link_given) tab=tab_ap;
-  // Smoke/review: two frames per tab, then each dialog for four frames (d = first dialog frame).
-  constexpr unsigned d=2*tab_count;
+  // Home plus four settings pages; rare and debug options sit in each page's Advanced fold.
+  constexpr int tab_count=5, tab_saves=3, tab_about=4;
+  if(ap_link_given) tab=tab_saves;
+  // Smoke/review: two frames per page, two more per settings page with Advanced open, then each dialog for four
+  // frames (d = first dialog frame).
+  constexpr unsigned d=2*tab_count+2*(tab_count-1);
+  bool force_advanced=false;
   bool quit=false,review_failed=false; unsigned smoke=review || (argc==2 && std::string(argv[1])=="--smoke-ui")?d+22:0;
   bool is_smoke=smoke!=0;
   if(is_smoke) ask_updates=false;
@@ -341,6 +383,22 @@ int main(int argc,char** argv) {
   browse_roots.push_back("/");
 #endif
   auto show_dialog=[&](Dialog next) { dialog=next; open_dialog=true; dialog_focus=true; };
+  // Choosing a disc, folder or package (kind: 0 disc, 1 title update, 2 DLC): the system picker for mouse and
+  // keyboard, the built-in browser (Back returns to the dialog it came from) for controllers.
+  Dialog browser_back=Dialog::none;
+  bool advanced_open[5]{};  // per settings page
+  auto browse_files=[&](bool folder,int kind) {
+    folder_browser=folder; package_kind=kind; browse=kind?ghome:fs::is_directory(game)?game:ghome; refresh_browser();
+    browser_back=dialog==Dialog::browser?browser_back:dialog;
+    if(dialog==Dialog::none) show_dialog(Dialog::browser); else { dialog=Dialog::browser; dialog_focus=true; }
+  };
+  auto native_pick=[&](bool folder,int kind) {
+    { std::lock_guard lock(picker.mutex); picker.pending=true; picker.folder=folder; picker.kind=kind; }
+    static const SDL_DialogFileFilter filters[]={{"Xbox disc image","iso"}};
+    if(folder) SDL_ShowOpenFolderDialog(picked,&picker,window,nullptr,false);
+    else SDL_ShowOpenFileDialog(picked,&picker,window,kind?nullptr:filters,kind?0:1,nullptr,false);
+  };
+  auto pick=[&](bool folder,int kind) { if(device=="keyboard") native_pick(folder,kind); else browse_files(folder,kind); };
   // Selects another game: unsaved settings of the old one are dropped, everything game-specific is reloaded,
   // and the new game's files get the usual quick check.
   auto switch_game=[&](int index) {
@@ -349,10 +407,10 @@ int main(int argc,char** argv) {
     online.releases.clear(); online.message.clear(); online.game=-1;
     read_game(); read_user(); load_ap();
     dlc_packs.clear(); if(gp->dlc) dlc_packs=list_content_dlc(user,gp->title_id);
-    if(tab==tab_ap&&!gp->archipelago) tab=0;
     focus_page=true;
     try { update_config(preferences,{{"selected_game",toml_string(gp->id)}}); } catch(const std::exception& e) { error=e.what(); }
     leftovers=writable?unfinished_imports(ghome,game):std::vector<fs::path>{};
+    setup=first_run(); tu_skipped=false;
     if(writable && !manifest.empty() && fs::is_directory(game)) { begin(game,Job::quick_check); busy=true; }
   };
   // Title update saves the disc build would call damaged (core.h title_update_saves); set when Play confirmed them.
@@ -401,7 +459,9 @@ int main(int argc,char** argv) {
   while(!quit) {
     if(autoplay&&!busy) { autoplay=false; if(verified&&!process.running()) launch(); }
     if(is_smoke && (!review||!busy)) {
-      if(smoke_frame<d) { tab=int(smoke_frame/2); focus_page=true; }
+      force_advanced=smoke_frame>=2*tab_count&&smoke_frame<d;
+      if(smoke_frame<2*tab_count) { tab=int(smoke_frame/2); focus_page=true; }
+      else if(smoke_frame<d) { tab=1+int((smoke_frame-2*tab_count)/2); focus_page=true; }
       if(smoke_frame==d) show_dialog(Dialog::install);
       if(smoke_frame==d+4) { folder_browser=true; refresh_browser(); dialog=Dialog::browser; dialog_focus=true; }
       if(smoke_frame==d+8) { dialog=Dialog::keyboard; dialog_focus=true; }
@@ -440,7 +500,6 @@ int main(int argc,char** argv) {
     }
     if(switch_tab && !ask_updates && !popup_before && !editing_before) {
       tab=(tab+switch_tab%tab_count+tab_count)%tab_count;
-      if(tab==tab_ap&&!gp->archipelago) tab=(tab+(switch_tab>0?1:-1)+tab_count)%tab_count;
       focus_page=true;
     }
     {
@@ -482,7 +541,9 @@ int main(int argc,char** argv) {
       }
       focus_page=true;
     }
-    ImGui_ImplSDLRenderer3_NewFrame(); ImGui_ImplSDL3_NewFrame(); ImGui::NewFrame();
+    ImGui_ImplSDLRenderer3_NewFrame(); ImGui_ImplSDL3_NewFrame();
+    if(review) { io.DisplaySize={float(review_width),float(review_height)}; io.DisplayFramebufferScale={1,1}; }
+    ImGui::NewFrame();
     bool nested_popup=ImGui::IsPopupOpen("",ImGuiPopupFlags_AnyPopupId|ImGuiPopupFlags_AnyPopupLevel);
     if(back&&!ask_updates) {
       if(dialog!=Dialog::none) {
@@ -494,442 +555,730 @@ int main(int argc,char** argv) {
         else show_dialog(Dialog::quit);
       }
     }
-    ImVec2 size=io.DisplaySize; float ui_scale=std::clamp(std::min(size.x/1280.f,size.y/720.f),.75f,2.f);
+    ImVec2 size=io.DisplaySize; float ui_scale=std::clamp(std::min(size.x/1280.f,size.y/720.f),.75f,2.f); const float s=ui_scale;
     auto& style=ImGui::GetStyle(); style.FontScaleMain=ui_scale;
     // Window dimensions include initial display DPI; one scale keeps fonts and controls aligned.
     style.FontScaleDpi=1.f;
-    style.WindowPadding={24*ui_scale,16*ui_scale}; style.ItemSpacing={14*ui_scale,10*ui_scale}; style.FramePadding={12*ui_scale,8*ui_scale};
-    style.FrameRounding=2; style.WindowRounding=4;
-    style.Colors[ImGuiCol_Button]={.12f,.22f,.22f,.95f}; style.Colors[ImGuiCol_ButtonHovered]={.19f,.42f,.34f,1}; style.Colors[ImGuiCol_ButtonActive]={.23f,.57f,.41f,1};
-    style.Colors[ImGuiCol_Header]={.13f,.35f,.28f,.92f}; style.Colors[ImGuiCol_HeaderHovered]={.2f,.5f,.38f,1}; style.Colors[ImGuiCol_HeaderActive]={.25f,.6f,.43f,1};
-    style.Colors[ImGuiCol_FrameBg]={.08f,.18f,.17f,.94f}; style.Colors[ImGuiCol_FrameBgHovered]={.12f,.30f,.24f,1}; style.Colors[ImGuiCol_FrameBgActive]={.14f,.40f,.30f,1};
-    style.Colors[ImGuiCol_TitleBg]={.06f,.14f,.13f,1}; style.Colors[ImGuiCol_TitleBgActive]={.12f,.30f,.24f,1};
-    style.Colors[ImGuiCol_SliderGrab]={.28f,.70f,.49f,1}; style.Colors[ImGuiCol_SliderGrabActive]={.38f,.98f,.63f,1};
-    style.Colors[ImGuiCol_TextDisabled]={.62f,.69f,.70f,1};
-    style.Colors[ImGuiCol_NavCursor]={.38f,.98f,.63f,1}; style.Colors[ImGuiCol_CheckMark]=style.Colors[ImGuiCol_NavCursor]; style.Colors[ImGuiCol_WindowBg]={.04f,.08f,.10f,.96f};
+    apply_theme(style,s);
     visuals->backdrop(size);
     ImGui::SetNextWindowPos({0,0}); ImGui::SetNextWindowSize(size);
-    ImGui::Begin("Launcher",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoBackground);
-    visuals->logo(ui_scale,gp->title);
-    ImGui::SameLine();
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY()+std::max(0.f,(ImGui::GetItemRectSize().y-ImGui::GetTextLineHeight())*.5f));
-    // A single-game build ships inside the game's release: show that release, not the launcher's own version.
-    ImGui::TextDisabled("RECOMP %s",kSingleGame>=0&&!game_version.empty()?game_version.c_str():LAUNCHER_VERSION);
-    // Game selector: one button per game, disabled while anything runs.
-    {
-      bool pending_pick; { std::lock_guard lock(picker.mutex); pending_pick=picker.pending; }
-      ImGui::BeginDisabled(busy||pending_pick||process.running()||online.busy||dialog!=Dialog::none);
-      for(int i=0;kSingleGame<0&&i<kGameCount;++i) {
-        ImGui::SameLine(0,i?6*ui_scale:24*ui_scale);
-        bool active=i==game_sel;
-        if(active) ImGui::PushStyleColor(ImGuiCol_Button,{.16f,.43f,.32f,1});
-        if(ImGui::Button(kGames[i].title)&&!active) switch_game(i);
-        if(active) ImGui::PopStyleColor();
-      }
-      ImGui::EndDisabled();
-    }
-    for(int i=0;i<tab_count;++i) {
-      if(i==tab_ap&&!gp->archipelago) continue;
-      if(i) ImGui::SameLine(0,6*ui_scale);
-      bool active=i==tab;
-      if(active) ImGui::PushStyleColor(ImGuiCol_Button,{.16f,.43f,.32f,1});
-      if(ImGui::Button(tabs[i])) { tab=i; focus_page=true; }
-      if(active) ImGui::PopStyleColor();
-    }
-    ImGui::Separator();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{0,0});
+    ImGui::Begin("Launcher",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoBackground|ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    auto* draw=ImGui::GetWindowDrawList();
+    const float margin=40*s, header_h=76*s, footer_h=58*s;
+    // ---- Widgets shared by every page ----
+    auto muted=[&](const char* text,float px=18) { ImGui::PushFont(nullptr,px); ImGui::PushStyleColor(ImGuiCol_Text,kMuted); ImGui::TextWrapped("%s",text); ImGui::PopStyleColor(); ImGui::PopFont(); };
+    auto filled=[&](ImVec4 base,ImVec4 hover,ImVec4 active) { ImGui::PushStyleColor(ImGuiCol_Button,base); ImGui::PushStyleColor(ImGuiCol_ButtonHovered,hover); ImGui::PushStyleColor(ImGuiCol_ButtonActive,active); };
+    bool auto_focus_now=false;  // set per page below
+    auto focus_first=[&](bool enabled=true) { if(auto_focus_now&&enabled) { ImGui::SetKeyboardFocusHere(); auto_focus_now=false; } };
+    // The big call to action (PLAY / INSTALL): Xbox green, condensed bold type.
+    auto primary=[&](const char* label,ImVec2 sz,bool enabled=true,float px=40) {
+      ImGui::BeginDisabled(!enabled); focus_first(enabled);
+      filled(kAccentDeep,kAccent,kAccentHover); ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,8*s); ImGui::PushFont(visuals->heading,px);
+      bool clicked=ImGui::Button(label,{sz.x*s,sz.y*s});
+      ImGui::PopFont(); ImGui::PopStyleVar(); ImGui::PopStyleColor(3); ImGui::EndDisabled(); return clicked;
+    };
+    // Everything else: dark glass with a hairline border.
+    auto secondary=[&](const char* label,bool enabled=true,ImVec2 sz={0,0}) {
+      ImGui::BeginDisabled(!enabled); focus_first(enabled);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,1.f); ImGui::PushStyleColor(ImGuiCol_Border,ImVec4{1,1,1,.14f});
+      bool clicked=ImGui::Button(label,{sz.x*s,sz.y*s});
+      ImGui::PopStyleColor(); ImGui::PopStyleVar(); ImGui::EndDisabled(); return clicked;
+    };
+    auto link=[&](const char* label) {
+      filled({0,0,0,0},{1,1,1,.06f},{1,1,1,.10f}); ImGui::PushStyleColor(ImGuiCol_Text,kAccent);
+      bool clicked=ImGui::Button(label); ImGui::PopStyleColor(4); return clicked;
+    };
+    // On/off switch (replaces checkboxes); focusable and pressable like a button.
+    auto toggle=[&](const char* id,bool* v) {
+      float frame=ImGui::GetFrameHeight(), h=frame*.72f, w=h*1.85f; auto p=ImGui::GetCursorScreenPos();
+      bool clicked=ImGui::InvisibleButton(id,{w,frame}); if(clicked) *v=!*v;
+      bool hot=ImGui::IsItemHovered()||ImGui::IsItemFocused();
+      ImVec2 a{p.x,p.y+(frame-h)*.5f},b{p.x+w,a.y+h};
+      auto* dl=ImGui::GetWindowDrawList();
+      dl->AddRectFilled(a,b,ImGui::GetColorU32(*v?(hot?kAccent:kAccentDeep):(hot?ImVec4{.28f,.32f,.33f,1}:ImVec4{.22f,.26f,.27f,1})),h*.5f);
+      dl->AddCircleFilled({*v?b.x-h*.5f:a.x+h*.5f,a.y+h*.5f},h*.5f-3*s,ImGui::GetColorU32(ImVec4{.96f,.97f,.96f,1}));
+      return clicked;
+    };
+    auto notice=[&](Mark m,const std::string& text,float width) {
+      ImVec4 tint=m==Mark::bad?ImVec4{.45f,.10f,.08f,.55f}:m==Mark::warn?ImVec4{.42f,.28f,.04f,.55f}:ImVec4{.14f,.30f,.06f,.55f};
+      ImGui::PushStyleColor(ImGuiCol_ChildBg,tint); ImGui::PushStyleColor(ImGuiCol_Border,ImVec4{1,1,1,.10f});
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{14*s,10*s});
+      ImGui::BeginChild(ImGui::GetID(text.c_str()),{width,0},ImGuiChildFlags_AutoResizeY|ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding);
+      mark(m,s); ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(text.c_str()); ImGui::PopTextWrapPos();
+      ImGui::EndChild(); ImGui::PopStyleVar(); ImGui::PopStyleColor(2);
+    };
+    auto section=[&](const char* text) {
+      ImGui::Dummy({0,4*s}); ImGui::PushFont(visuals->title,21); ImGui::PushStyleColor(ImGuiCol_Text,kAccent);
+      ImGui::TextUnformatted(text); ImGui::PopStyleColor(); ImGui::PopFont();
+      auto a=ImGui::GetCursorScreenPos(); ImGui::GetWindowDrawList()->AddLine({a.x,a.y-6*s},{a.x+ImGui::GetContentRegionAvail().x,a.y-6*s},ImGui::GetColorU32(ImVec4{1,1,1,.08f}),1);
+    };
+    // Settings rows: label (and a short explanation) on the left, the control on the right.
+    auto rows=[&](const char* id) {
+      if(!ImGui::BeginTable(id,2,ImGuiTableFlags_None)) return false;
+      ImGui::TableSetupColumn("label",ImGuiTableColumnFlags_WidthFixed,330*s); ImGui::TableSetupColumn("control",ImGuiTableColumnFlags_WidthStretch);
+      return true;
+    };
+    auto row=[&](const char* label,const char* help=nullptr) {
+      ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{style.ItemSpacing.x,1*s});
+      ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(label);
+      if(help) { ImGui::PushTextWrapPos(ImGui::GetCursorPosX()+310*s); muted(help,16); ImGui::PopTextWrapPos(); }
+      ImGui::PopStyleVar();
+      ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x,420*s));
+    };
+    // The fold for rare and debug options at the bottom of each settings page (closed until opened).
+    auto advanced=[&](const char* id) {
+      bool& open=advanced_open[tab]; if(force_advanced) open=true;
+      ImGui::Dummy({0,2*s}); ImGui::PushID(id);
+      filled({0,0,0,0},{1,1,1,.05f},{1,1,1,.08f}); ImGui::PushStyleColor(ImGuiCol_Text,kMuted); ImGui::PushFont(visuals->title,20);
+      auto p=ImGui::GetCursorScreenPos(); float r=5*s, arrow=2*r+8*s;
+      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,{style.FramePadding.x+arrow,style.FramePadding.y});
+      if(ImGui::Button(open?"HIDE ADVANCED SETTINGS":"SHOW ADVANCED SETTINGS")) open=!open;
+      ImGui::PopStyleVar(); ImGui::PopFont(); ImGui::PopStyleColor(4); ImGui::PopID();
+      ImVec2 c{p.x+style.FramePadding.x+r,p.y+ImGui::GetItemRectSize().y*.5f}; ImU32 color=ImGui::GetColorU32(kMuted); auto* dl=ImGui::GetWindowDrawList();
+      if(open) dl->AddTriangleFilled({c.x-r,c.y-r*.55f},{c.x+r,c.y-r*.55f},{c.x,c.y+r*.65f},color);
+      else dl->AddTriangleFilled({c.x-r*.55f,c.y-r},{c.x-r*.55f,c.y+r},{c.x+r*.65f,c.y},color);
+      return open;
+    };
+    // ---- Header: brand, game switch (combined launcher) and page tabs ----
     bool pending; { std::lock_guard lock(picker.mutex); pending=picker.pending; }
     bool blocked=busy||pending||process.running()||!writable||online.busy;
-    ImGui::BeginChild("Page",{0,-100*ui_scale},false);
-    auto_focus=focus_page; focus_page=false;
-    auto focus_first=[&](bool enabled=true) { if(auto_focus&&enabled) { ImGui::SetKeyboardFocusHere(); auto_focus=false; } };
-    auto menu=[&](const char* label,bool enabled=true) {
-      ImGui::BeginDisabled(!enabled); focus_first(enabled); ImGui::PushFont(visuals->heading);
-      bool clicked=ImGui::Selectable(label,false,0,{430*ui_scale,48*ui_scale});
-      if(ImGui::IsItemFocused()||ImGui::IsItemHovered()) { auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax(); ImGui::GetWindowDrawList()->AddRectFilled({a.x-8*ui_scale,a.y},{a.x-4*ui_scale,b.y},IM_COL32(96,244,161,255)); }
-      ImGui::PopFont(); ImGui::EndDisabled(); return clicked;
+    ImGui::SetCursorPos({margin,(header_h-ImGui::GetFrameHeight())*.5f});
+    ImGui::AlignTextToFramePadding(); ImGui::PushFont(visuals->title,20); ImGui::TextColored(kMuted,"PACIFIC CITY RECOMPILED"); ImGui::PopFont();
+    if(kSingleGame<0) {
+      ImGui::BeginDisabled(busy||pending||process.running()||online.busy||dialog!=Dialog::none);
+      ImGui::SameLine(0,22*s); ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{2*s,0}); ImGui::PushFont(visuals->title,20);
+      for(int i=0;i<kGameCount;++i) {
+        if(i) ImGui::SameLine();
+        bool active=i==game_sel;
+        if(active) filled(kAccentDeep,kAccent,kAccentHover); else filled({.10f,.13f,.14f,.9f},{.18f,.22f,.23f,1},{.22f,.27f,.28f,1});
+        if(ImGui::Button(kGames[i].title)&&!active) switch_game(i);
+        ImGui::PopStyleColor(3);
+      }
+      ImGui::PopFont(); ImGui::PopStyleVar(); ImGui::EndDisabled();
+    }
+    {
+      const char* names[]={"HOME","DISPLAY","GAMEPLAY",gp->archipelago?"SAVES & ARCHIPELAGO":"SAVES","ABOUT"};
+      ImGui::PushFont(visuals->title,22);
+      float width=0; for(const char* n:names) width+=ImGui::CalcTextSize(n).x+2*style.FramePadding.x+4*s;
+      ImGui::SameLine(std::max(ImGui::GetCursorPosX()+20*s,size.x-margin-width));
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{4*s,0});
+      for(int i=0;i<tab_count;++i) {
+        if(i) ImGui::SameLine();
+        filled({0,0,0,0},{1,1,1,.06f},{1,1,1,.10f}); ImGui::PushStyleColor(ImGuiCol_Text,i==tab?kText:kMuted);
+        if(ImGui::Button(names[i])) { tab=i; focus_page=true; }
+        ImGui::PopStyleColor(4);
+        if(i==tab) { auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax(); draw->AddRectFilled({a.x+style.FramePadding.x,b.y+2*s},{b.x-style.FramePadding.x,b.y+5*s},ImGui::GetColorU32(kAccent),2*s); }
+      }
+      ImGui::PopStyleVar(); ImGui::PopFont();
+    }
+    draw->AddLine({margin,header_h},{size.x-margin,header_h},ImGui::GetColorU32(ImVec4{1,1,1,.08f}),1);
+    // ---- Page ----
+    ImGui::SetCursorPos({0,header_h+1});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{margin,22*s});
+    ImGui::BeginChild("Page",{size.x,size.y-header_h-footer_h-1},ImGuiChildFlags_AlwaysUseWindowPadding,ImGuiWindowFlags_NoBackground);
+    ImGui::PopStyleVar();
+    auto_focus_now=focus_page; focus_page=false; auto_focus=auto_focus_now;
+    const float page_w=ImGui::GetContentRegionAvail().x;
+    bool exe_present=fs::is_regular_file(ghome/gp->exe);
+    bool tu_missing=gp->title_update&&verified&&!fs::is_regular_file(game/"default.xexp");  // Crackdown 2: required
+    bool tu_optional=gp->update_exe&&verified&&!update_exe_ready();                         // Crackdown 1: Title Update #6
+    auto install_tu=[&] { package_kind=1; show_dialog(Dialog::package); };
+    auto install_dlc=[&] { package_kind=2; show_dialog(Dialog::package); };
+    auto messages=[&](float width) {
+      if(!error.empty()) { ImGui::Spacing(); notice(Mark::bad,error,width); }
+      if(!report.empty()) { ImGui::Spacing(); notice(Mark::ok,report,width); }
+      if(!crash.empty()) { ImGui::BeginChild("Startup log",{width,130*s},ImGuiChildFlags_Borders); ImGui::TextUnformatted(crash.c_str()); ImGui::EndChild(); }
     };
-    if(tab==0) {
-      if(busy) {
-        { std::lock_guard lock(task.mutex); ImGui::TextWrapped("%s",task.status.c_str()); }
-        auto total=task.total.load(),bytes=task.bytes.load(); ImGui::ProgressBar(total?static_cast<float>(double(bytes)/total):0,{430*ui_scale,0});
-        if(total) ImGui::Text("%.1f / %.1f GB",bytes/1e9,total/1e9);
-        focus_first(); if(ImGui::Button("Cancel verification / import")) task.cancel=true;
-      } else if(kSingleGame>=0&&!fs::is_regular_file(ghome/gp->exe)) {
-        if(menu("QUIT")) show_dialog(Dialog::quit);
-        ImGui::TextWrapped("%s is missing from %s. Reinstall or repair the app in the launcher you installed it with.",gp->exe,utf8(ghome).c_str());
-      } else if(!launcher_package()&&!fs::is_regular_file(ghome/gp->exe)) {
-        // This game's runtime comes from its own repository; nothing else works until it is in its folder.
-        if(menu("DOWNLOAD RUNTIME",!blocked)) { show_dialog(Dialog::updates); check_updates(); }
-        if(menu("SETTINGS")) { tab=1; focus_page=true; }
-        if(menu("QUIT",!(online.busy&&online.install))) show_dialog(Dialog::quit);
-        ImGui::TextWrapped("%s is not installed in this launcher yet. Download its latest release from %s into %s, then install your game files.",
-                           gp->title,releases_url(*gp->updates).c_str(),utf8(ghome).c_str());
+    auto progress=[&](float width) {
+      { std::lock_guard lock(task.mutex); ImGui::TextWrapped("%s",task.status.c_str()); }
+      auto total=task.total.load(),bytes=task.bytes.load();
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,4*s); ImGui::ProgressBar(total?static_cast<float>(double(bytes)/total):-float(SDL_GetTicks()%10000)/1000.f,{width,10*s},""); ImGui::PopStyleVar();
+      if(total) { ImGui::PushStyleColor(ImGuiCol_Text,kMuted); ImGui::Text("%.1f / %.1f GB",bytes/1e9,total/1e9); ImGui::PopStyleColor(); }
+      if(secondary("Cancel")) task.cancel=true;
+    };
+    if(tab==0&&setup&&exe_present&&!manifest.empty()) {
+      // ---- First-run setup: disc, title update, DLC ----
+      bool has_tu=gp->title_update||gp->update_exe;
+      int step=!verified?0:(has_tu&&(tu_missing||(tu_optional&&!tu_skipped)))?1:2;
+      if(!has_tu&&step==1) step=2;
+      if(!gp->dlc&&step==2&&!tu_missing&&!(tu_optional&&!tu_skipped)) setup=false;
+      float card_w=std::min(page_w,720*s);
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX()+(page_w-card_w)*.5f);
+      ImGui::PushStyleColor(ImGuiCol_ChildBg,kPanel); ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{36*s,28*s});
+      ImGui::BeginChild("Setup",{card_w,0},ImGuiChildFlags_AutoResizeY|ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding);
+      ImGui::PopStyleVar();
+      visuals->logo(64*s,gp->title);
+      ImGui::PushFont(visuals->title,20); ImGui::TextColored(kMuted,"SETUP"); ImGui::PopFont();
+      // Step tracker.
+      {
+        const char* labels[]={"Game disc","Title update","DLC"};
+        std::vector<int> shown; shown.push_back(0); if(has_tu) shown.push_back(1); if(gp->dlc) shown.push_back(2);
+        auto origin=ImGui::GetCursorScreenPos(); float avail=ImGui::GetContentRegionAvail().x, gap=avail/float(shown.size()); float r=13*s;
+        auto* dl=ImGui::GetWindowDrawList();
+        for(size_t i=0;i<shown.size();++i) {
+          int k=shown[i]; ImVec2 c{origin.x+gap*(float(i)+.5f),origin.y+r};
+          if(i+1<shown.size()) dl->AddLine({c.x+r+6*s,c.y},{c.x+gap-r-6*s,c.y},ImGui::GetColorU32(k<step?kAccent:ImVec4{1,1,1,.15f}),2*s);
+          if(k<step) { dl->AddCircleFilled(c,r,ImGui::GetColorU32(kAccent)); ImVec2 pts[]={{c.x-r*.42f,c.y},{c.x-r*.1f,c.y+r*.33f},{c.x+r*.45f,c.y-r*.33f}}; dl->AddPolyline(pts,3,ImGui::GetColorU32(ImVec4{.03f,.05f,.04f,1}),0,2.4f*s); }
+          else if(k==step) { dl->AddCircle(c,r,ImGui::GetColorU32(kAccent),0,2.5f*s); dl->AddCircleFilled(c,r*.42f,ImGui::GetColorU32(kAccent)); }
+          else dl->AddCircle(c,r,ImGui::GetColorU32(ImVec4{1,1,1,.25f}),0,2*s);
+          ImGui::PushFont(nullptr,17); auto ts=ImGui::CalcTextSize(labels[k]);
+          dl->AddText({c.x-ts.x*.5f,c.y+r+6*s},ImGui::GetColorU32(k==step?kText:kMuted),labels[k]); ImGui::PopFont();
+        }
+        ImGui::Dummy({avail,2*r+34*s});
+      }
+      ImGui::PushFont(visuals->heading,34);
+      ImGui::TextUnformatted(step==0?"Install your game":step==1?(tu_missing?"Install the title update":"Add the title update (optional)"):"Add DLC (optional)");
+      ImGui::PopFont();
+      ImGui::PushTextWrapPos(0);
+      if(busy) progress(ImGui::GetContentRegionAvail().x);
+      else if(step==0) {
+        ImGui::TextUnformatted(gp->disc_hint); muted("A disc image is unpacked next to the launcher; an extracted folder is used where it is. Every file is checked, and nothing in your source is changed.");
+        ImGui::Spacing();
+        if(primary("CHOOSE DISC IMAGE",{300,58},!blocked,30)) pick(false,0);
+        ImGui::SameLine(); if(secondary("Choose extracted folder",!blocked,{0,58})) pick(true,0);
+        if(device=="keyboard") { ImGui::BeginDisabled(blocked); if(link("Use the built-in file browser")) browse_files(false,0); ImGui::EndDisabled(); }
+      } else if(step==1) {
+        ImGui::TextUnformatted(tu_missing?"Crackdown 2 runs with title update 0.0.5.1. Choose its package (a file named like TU_16L625S_0000004000000.0000000000181, from a console's Content\\0000000000000000\\4D5308BC\\000B0000 folder)."
+                                        :"Title Update #6 adds Keys to the City and Street Racing (the Free-For-All Pack needs it). Choose its package: TU_16L61US_0000004000000.00000000001G1, from a console's Content\\0000000000000000\\4D5307DC\\000B0000 folder.");
+        ImGui::Spacing();
+        if(primary("CHOOSE PACKAGE",{300,58},!blocked,30)) pick(false,1);
+        if(!tu_missing) { ImGui::SameLine(); if(secondary("Skip",!blocked,{140,58})) tu_skipped=true; }
       } else {
-        bool needs_update=gp->title_update&&verified&&!fs::is_regular_file(game/"default.xexp");
-        if(needs_update) { if(menu("INSTALL TITLE UPDATE",!blocked)) { package_kind=1; show_dialog(Dialog::package); } }
-        else if(menu(process.running()?"PLAYING...":verified?"PLAY":"INSTALL GAME",!blocked&&!manifest.empty())) { if(verified) launch(); else show_dialog(Dialog::install); }
-        if(gp->update_exe&&verified&&!update_exe_ready()&&menu("INSTALL TITLE UPDATE",!blocked)) { package_kind=1; show_dialog(Dialog::package); }
-        if(gp->dlc&&verified&&menu("INSTALL DLC",!blocked)) { package_kind=2; show_dialog(Dialog::package); }
+        ImGui::TextUnformatted("DLC packs (from a console's Content\\0000000000000000\\<title id>\\00000002 folder) are unpacked once into your saves folder, and every profile can use them.");
+        for(const auto& pack:dlc_packs) { mark(Mark::ok,s); ImGui::TextUnformatted(pack.title.c_str()); }
+        ImGui::Spacing();
+        if(primary(dlc_packs.empty()?"CHOOSE DLC PACKAGE":"ADD ANOTHER",{300,58},!blocked,30)) pick(false,2);
+        ImGui::SameLine(); if(secondary(dlc_packs.empty()?"Skip and finish":"Finish",!blocked,{180,58})) { setup=false; focus_page=true; }
+      }
+      ImGui::PopTextWrapPos();
+      messages(ImGui::GetContentRegionAvail().x);
+      ImGui::EndChild(); ImGui::PopStyleColor();
+    } else if(tab==0) {
+      // ---- Home: logo, one-line status, PLAY; a status card on the right ----
+      const float card_w=380*s, hero_w=std::max(300*s,page_w-card_w-48*s);
+      auto top=ImGui::GetCursorPos();
+      // Status card.
+      {
+        ImGui::SetCursorPos({top.x+page_w-card_w,top.y+28*s});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,kPanel); ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{22*s,18*s});
+        ImGui::BeginChild("Status",{card_w,0},ImGuiChildFlags_AutoResizeY|ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PopStyleVar();
+        ImGui::PushFont(visuals->title,20); ImGui::TextColored(kMuted,"STATUS"); ImGui::PopFont();
+        auto line=[&](Mark m,const char* label,const std::string& value) {
+          mark(m,s); ImGui::TextUnformatted(label);
+          ImGui::PushFont(visuals->strong,0); auto w=ImGui::CalcTextSize(value.c_str()).x;
+          ImGui::SameLine(std::max(ImGui::GetCursorPosX(),ImGui::GetWindowWidth()-22*s-w)); ImGui::TextUnformatted(value.c_str()); ImGui::PopFont();
+        };
+        line(busy?Mark::warn:verified?Mark::ok:Mark::bad,"Game files",busy?"Checking":verified?"Verified":"Not installed");
+        if(gp->title_update) line(!verified?Mark::off:tu_missing?Mark::bad:Mark::ok,"Title update",!verified?"-":tu_missing?"Required":"0.0.5.1");
+        if(gp->update_exe) line(update_exe_ready()?Mark::ok:Mark::off,"Title update #6",update_exe_ready()?(use_title_update?"On":"Installed, off"):"Not installed");
+        if(gp->dlc) line(dlc_packs.empty()?Mark::off:Mark::ok,"DLC",dlc_packs.empty()?"None":std::to_string(dlc_packs.size())+(dlc_packs.size()==1?" pack":" packs"));
+        line(Mark::ok,"Profile",profile.empty()?"Default":profile);
+        if(gp->archipelago) { bool on=!profile.empty()&&ap.enabled; line(on?Mark::ok:Mark::off,"Archipelago",on?(ap.slot.empty()?"On":ap.slot):"Off"); }
+        if(gp->coop) line(coop.enabled?Mark::ok:Mark::off,"Co-op",coop.enabled?(coop.join?"Player 2":"Player 1 (host)"):"Off");
+        ImGui::EndChild(); ImGui::PopStyleColor();
+      }
+      ImGui::SetCursorPos({top.x,top.y+24*s});
+      ImGui::BeginGroup();
+      visuals->logo(visuals->has_logo()?150*s:110*s,gp->title);
+      // One-line status.
+      Mark state=busy?Mark::warn:process.running()?Mark::ok:!exe_present?Mark::bad:tu_missing?Mark::warn:verified?Mark::ok:Mark::bad;
+      std::string status=busy?"Checking game files":process.running()?"Playing":!exe_present?"Game program not installed":tu_missing?"Title update needed":verified?"Ready to play":"Game files not installed";
+      ImGui::Dummy({0,4*s}); mark(state,s); ImGui::PushFont(visuals->strong,0); ImGui::TextUnformatted(status.c_str()); ImGui::PopFont();
+      if(!game_version.empty()) { ImGui::SameLine(); ImGui::TextColored(kMuted,"  %s",game_version.c_str()); }
+      ImGui::Dummy({0,8*s});
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX()+hero_w);
+      if(busy) progress(std::min(hero_w,440*s));
+      else if(kSingleGame>=0&&!exe_present) {
+        primary("PLAY",{360,78},false,46);
+        ImGui::TextWrapped("%s is missing from %s. Reinstall or repair the app in the launcher you installed it with.",gp->exe,utf8(ghome).c_str());
+      } else if(!launcher_package()&&!exe_present) {
+        // This game's runtime comes from its own repository; nothing else works until it is in its folder.
+        if(primary("DOWNLOAD GAME",{360,78},!blocked,46)) { show_dialog(Dialog::updates); check_updates(); }
+        ImGui::TextWrapped("%s is not in this launcher yet. Its latest release comes from %s into %s; then install your game files.",gp->title,releases_url(*gp->updates).c_str(),utf8(ghome).c_str());
+      } else {
+        if(tu_missing) { if(primary("INSTALL TITLE UPDATE",{360,78},!blocked,40)) install_tu(); }
+        else if(primary(process.running()?"PLAYING":verified?"PLAY":"INSTALL GAME",{360,78},!blocked&&!manifest.empty(),46)) { if(verified) launch(); else show_dialog(Dialog::install); }
         if(update_exe_ready()) {
-          if(ImGui::Checkbox("Play with the title update (Keys to the City, Street Racing)",&use_title_update)) {
+          ImGui::Dummy({0,2*s}); ImGui::BeginDisabled(blocked);
+          if(toggle("##tu",&use_title_update)) {
             try { update_config(preferences,{{"cd1_title_update",use_title_update?std::nullopt:std::optional<std::string>("false")}}); } catch(const std::exception& e) { error=e.what(); }
           }
+          ImGui::EndDisabled(); ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted("Title update #6 (Keys to the City, Street Racing)");
         }
-        if(menu("VERIFY GAME FILES",!blocked&&!manifest.empty()&&fs::is_directory(game))) { visuals->clear_art(); begin(game,Job::full_check); busy=true; error.clear(); focus_page=true; }
-        if(kSingleGame<0&&menu("CHECK FOR UPDATES",!online.busy)) { show_dialog(Dialog::updates); check_updates(); }
-        if(menu("SETTINGS")) { tab=1; focus_page=true; }
-        if(menu("QUIT",!(online.busy&&online.install))) show_dialog(Dialog::quit);
+        // A few secondary actions, only those that apply right now.
+        if(verified) {
+          ImGui::Dummy({0,4*s}); bool first=true;
+          auto action=[&](const char* label,bool enabled) { if(!first) ImGui::SameLine(); first=false; return secondary(label,enabled); };
+          if(tu_optional&&action("Install title update",!blocked)) install_tu();
+          if(gp->dlc&&action("Install DLC",!blocked)) install_dlc();
+          if(kSingleGame<0&&action("Check for updates",!online.busy)) { show_dialog(Dialog::updates); check_updates(); }
+          if(gp->steam&&action("Add Crackdown to Steam",!blocked)) { try { report=add_to_steam(home/(kSingleGame==0?"CrackdownRecomp.exe":"CrackdownLauncher.exe")); error.clear(); } catch(const std::exception& e) { error=e.what(); } }
+        }
+      }
+      ImGui::PopTextWrapPos();
+      messages(std::min(hero_w,560*s));
+      ImGui::EndGroup();
+    } else {
+      // ---- Settings pages: one centered panel ----
+      const char* titles[]={"","Display","Gameplay",gp->archipelago?"Saves & Archipelago":"Saves","About"};
+      float panel_w=std::min(page_w,960*s);
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX()+(page_w-panel_w)*.5f);
+      ImGui::PushStyleColor(ImGuiCol_ChildBg,kPanel); ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{32*s,22*s});
+      ImGui::BeginChild("Panel",{panel_w,0},ImGuiChildFlags_AutoResizeY|ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding);
+      ImGui::PopStyleVar();
+      ImGui::PushFont(visuals->heading,36); ImGui::TextUnformatted(titles[tab]); ImGui::PopFont();
+      if(tab<=2) muted("Changes save automatically and apply the next time you press Play.");
+      if(!error.empty()) notice(Mark::bad,error,ImGui::GetContentRegionAvail().x);
+      if(tab==1||tab==2) ImGui::BeginDisabled(blocked);
+      if(tab==1) {
+        section("SCREEN");
+        if(rows("screen")) {
+          row("Fullscreen","F11 switches in game."); focus_first(!blocked);
+          if(toggle("##fullscreen",&fullscreen)) changes["fullscreen"]=fullscreen?std::nullopt:std::optional<std::string>("false");
+          row("Resolution","Rendering resolution. Higher needs a faster GPU.");
+          int resolution=scale>=1&&scale<=3?scale-1:0;
+          if(ImGui::Combo("##resolution",&resolution,"720p (default)\0" "1440p\0" "4K (2160p)\0")) { scale=resolution+1; changes["resolution_scale"]=scale==1?std::nullopt:std::optional<std::string>(std::to_string(scale)); changes["draw_resolution_scale_x"]=std::nullopt; changes["draw_resolution_scale_y"]=std::nullopt; }
+          // Aspect ratio and camera speed are Crackdown 1 hooks (hooks_aspect.cpp, hooks_camera.cpp); not ported to Crackdown 2 yet.
+          if(game_sel==0) {
+            row("Aspect ratio","Match an ultrawide or 4:3 display.");
+            if(ImGui::Combo("##aspect",&aspect,"16:9 (default)\0" "16:10\0" "21:9 (ultrawide)\0" "32:9 (super ultrawide)\0" "4:3\0")) { const char* values[]={nullptr,"16:10","21:9","32:9","4:3"}; changes["aspect_ratio"]=values[aspect]?std::optional<std::string>(toml_string(values[aspect])):std::nullopt; changes["video_mode_width"]=std::nullopt; changes["video_mode_height"]=std::nullopt; }
+            // 120 / 144: the host paces frames above 60 (hooks_framerate.cpp PaceFrame); co-op holds 60 (host_tuning.cpp).
+            row("Frame rate","F3 shows it in game.");
+            if(ImGui::Combo("##rate",&rate,"60 fps (default)\0" "30 fps (stock)\0" "120 fps (experimental)\0" "144 fps (experimental)\0")) { changes["vsync"]=rate==1?std::optional<std::string>("true"):std::nullopt; changes["fps_cap"]=rate==2?std::optional<std::string>("120"):rate==3?std::optional<std::string>("144"):std::nullopt; }
+          } else {
+            // Crackdown 2: 60 fps by default (crackdown2.exe sets fps_cap=60 + its measured game clock); 30 = host cap.
+            row("Frame rate","F3 shows it in game.");
+            if(ImGui::Combo("##rate",&rate,"60 fps (default)\0" "30 fps (stock)\0")) { changes["fps_cap"]=rate?std::optional<std::string>("30"):std::nullopt; changes["sim_game_clock"]=std::nullopt; changes["vsync"]=std::nullopt; }
+          }
+          row("Anti-aliasing");
+          if(ImGui::Combo("##aa",&aa,"Off (default)\0FXAA\0FXAA (extreme)\0")) changes["swap_post_effect"]=aa==0?std::nullopt:std::optional<std::string>(toml_string(aa==1?"fxaa":"fxaa_extreme"));
+          ImGui::EndTable();
+        }
+        if(advanced("display")&&rows("display-advanced")) {
+          row("Window size","When not fullscreen.");
+          if(ImGui::Combo("##window",&window_size,"Automatic\0" "1280 x 720\0" "1920 x 1080\0" "2560 x 1440\0")) {
+            const int widths[]={0,1280,1920,2560}, heights[]={0,720,1080,1440}; changes["window_width"]=window_size?std::optional<std::string>(std::to_string(widths[window_size])):std::nullopt; changes["window_height"]=window_size?std::optional<std::string>(std::to_string(heights[window_size])):std::nullopt;
+          }
+          row("Monitor","0 uses the system default.");
+          if(ImGui::SliderInt("##monitor",&monitor,0,16)) changes["monitor"]=monitor?std::optional<std::string>(std::to_string(monitor)):std::nullopt;
+          row("Texture filtering");
+          if(ImGui::Combo("##aniso",&aniso,"Game's own\0Anisotropic 2x\0Anisotropic 4x (default)\0Anisotropic 8x\0Anisotropic 16x\0")) { const char* values[]={"-1","2",nullptr,"4","5"}; changes["anisotropic_override"]=values[aniso]?std::optional<std::string>(values[aniso]):std::nullopt; }
+          row("Upscale filter");
+#if LAUNCHER_FIDELITYFX
+          if(ImGui::Combo("##filter",&filter,"Bilinear\0CAS\0FSR\0")) changes["present_effect"]=filter==0?std::nullopt:std::optional<std::string>(toml_string(filter==1?"cas":"fsr"));
+#else
+          ImGui::AlignTextToFramePadding(); ImGui::TextColored(kMuted,"Bilinear (this build)");
+#endif
+          ImGui::EndTable();
+        }
+      }
+      if(tab==2) {
+        section("GAME");
+        if(rows("game")) {
+          row("Language","The disc may not include every language."); focus_first(!blocked);
+          int language_index=language-1;
+          if(ImGui::Combo("##language",&language_index,"English\0Japanese\0German\0French\0Spanish\0Italian\0Korean\0Chinese (Traditional)\0Portuguese\0Chinese (Simplified)\0")) { language=language_index+1; changes["user_language"]=language==1?std::nullopt:std::optional<std::string>(std::to_string(language)); }
+          row("Skip intro logos");
+          if(toggle("##intro",&skip_intro)) changes["skip_intro_videos"]=skip_intro?std::nullopt:std::optional<std::string>("false");
+          ImGui::EndTable();
+        }
+        section("CONTROLS");
+        if(rows("controls")) {
+          if(game_sel==0) {
+            row("Camera turn speed","Right stick or mouse. 1.00x is the original speed.");
+            if(ImGui::SliderFloat("##camera",&camera_speed,0.25f,4.0f,"%.2fx")) {
+              char text[16]; std::snprintf(text,sizeof(text),"%.2f",camera_speed);
+              changes["camera_sensitivity"]=std::abs(camera_speed-1.0f)<0.005f?std::nullopt:std::optional<std::string>(text);
+            }
+          }
+          row("Mouse and keyboard","Play with WASD and the mouse instead of a controller.");
+          if(toggle("##mnk",&mnk)) changes["mnk_mode"]=mnk?std::optional<std::string>("true"):std::nullopt;
+          if(mnk) {
+            row("Mouse sensitivity");
+            if(ImGui::SliderFloat("##mouse",&mouse_sens,0.1f,5.0f,"%.2f")) {
+              char text[16]; std::snprintf(text,sizeof(text),"%.2f",mouse_sens);
+              changes["mnk_sensitivity"]=std::abs(mouse_sens-1.0f)<0.005f?std::nullopt:std::optional<std::string>(text);
+            }
+          }
+          ImGui::EndTable();
+        }
+        if(mnk) muted("WASD moves, the mouse aims, left click fires, right click locks on, Space jumps (A), Backspace is B, L is X, P is Y, 1 / 3 are the bumpers, Enter or X is Start, Tab is Back, Shift+arrows is the D-pad.");
+        if(gp->coop) {
+          section("CO-OP (SYSTEM LINK, EXPERIMENTAL)");
+          bool coop_edit=false;
+          if(rows("coop")) {
+            row("Play co-op with another PC","Both players need the same game version. Co-op runs at 30 fps.");
+            coop_edit=toggle("##coop",&coop.enabled);
+            if(coop_edit&&coop.enabled&&!coop_own[0]&&!coop_addresses.empty()) std::snprintf(coop_own,sizeof(coop_own),"%s",coop_addresses.front().c_str());
+            if(coop.enabled) {
+              int role=coop.join?1:0;
+              row("Role",coop.join?"Player 2 has a separate save, which starts fresh (see SETUP.md to copy yours).":"Player 1 keeps their normal save.");
+              if(ImGui::Combo("##role",&role,"Player 1 (hosts)\0Player 2 (joins)\0")) { coop.join=role==1; coop_edit=true; }
+              row("Your address","Over the internet, use Tailscale addresses (100.x.y.z).");
+              coop_edit|=ImGui::InputTextWithHint("##own",coop_addresses.empty()?"e.g. 192.168.1.20":coop_addresses.front().c_str(),coop_own,sizeof(coop_own));
+              for(const auto& address:coop_addresses) { if(ImGui::SmallButton(address.c_str())) { std::snprintf(coop_own,sizeof(coop_own),"%s",address.c_str()); coop_edit=true; } ImGui::SameLine(); }
+              ImGui::NewLine();
+              row("Other player's address");
+              coop_edit|=ImGui::InputTextWithHint("##partner","e.g. 192.168.1.21",coop_partner,sizeof(coop_partner));
+            }
+            ImGui::EndTable();
+          }
+          if(coop.enabled) muted("In the game: Campaign > Play Now - Co-op.");
+          if(coop_edit) {
+            coop.own_address=coop_own; coop.partner_address=coop_partner;
+            try { for(auto& [key,v]:coop_changes(coop)) changes[key]=v; coop_error.clear(); } catch(const std::exception& e) { coop_error=e.what(); }
+          }
+          if(coop.enabled&&!coop_error.empty()) notice(Mark::bad,coop_error,ImGui::GetContentRegionAvail().x);
+        }
+        if(advanced("gameplay")) {
+          if(rows("gameplay-advanced")) {
+            row("Mute audio");
+            if(toggle("##mute",&mute)) changes["audio_mute"]=mute?std::optional<std::string>("true"):std::nullopt;
+            row("Close the launcher after Play");
+            if(toggle("##close",&close_on_play)) {
+              try { update_config(preferences,{{"close_on_play",close_on_play?std::optional<std::string>("true"):std::nullopt}}); } catch(const std::exception& e) { error=e.what(); }
+            }
+            row("Input backend"); ImGui::AlignTextToFramePadding(); ImGui::TextColored(kMuted,"%s",input_backend.c_str());
+            ImGui::EndTable();
+          }
+          muted("Launcher controls: D-pad or left stick moves, the confirm button selects, the back button returns, and the shoulder buttons switch pages. Keyboard: arrows, Enter, Esc, Q / E.");
+        }
+      }
+      if(tab==1||tab==2) ImGui::EndDisabled();
+      if(tab==tab_saves) {
+        // A room link from the Archipelago Launcher comes first: it only needs a profile to go to.
+        if(gp->archipelago&&ap_link) {
+          bool named=!user.empty()&&!profile.empty();
+          notice(named?Mark::ok:Mark::warn,"Archipelago room link: slot \""+ap_link->slot+"\" on "+ap_link->server+"."+(named?" It will be saved to the profile \""+profile+"\".":" Choose or create the save profile for this seed below, then use the link."),ImGui::GetContentRegionAvail().x);
+          ImGui::BeginDisabled(blocked||!named);
+          if(primary("USE THIS ROOM LINK",{300,52},!blocked&&named,26)) {
+            if(ap_link->server.size()>=sizeof(ap_server)||ap_link->slot.size()>=sizeof(ap_slot)||ap_link->password.size()>=sizeof(ap_password))
+              error="The room link's server, slot name or password is too long";
+            else {
+              ap.enabled=true;
+              std::snprintf(ap_server,sizeof(ap_server),"%s",ap_link->server.c_str()); std::snprintf(ap_slot,sizeof(ap_slot),"%s",ap_link->slot.c_str());
+              std::snprintf(ap_password,sizeof(ap_password),"%s",ap_link->password.c_str());
+              try { save_ap(); ap_link.reset(); error.clear(); } catch(const std::exception& e) { error=e.what(); }
+            }
+          }
+          ImGui::EndDisabled();
+        }
+        ImGui::BeginDisabled(blocked||user.empty());
+        section("SAVE PROFILE");
+        if(rows("profile")) {
+          row("Profile","Each profile has its own save. A new one starts with New Game."); focus_first(!blocked&&!user.empty());
+          if(ImGui::BeginCombo("##profile",profile.empty()?"Default (existing saves)":profile.c_str())) {
+            try { if(ImGui::Selectable("Default (existing saves)",profile.empty())) save_profile(""); for(const auto& name:profiles) if(ImGui::Selectable(name.c_str(),name==profile)) save_profile(name); }
+            catch(const std::exception& e) { error=e.what(); } ImGui::EndCombo();
+          }
+          row("New profile");
+          ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x,420*s)-ImGui::CalcTextSize("Create").x-2*style.FramePadding.x-style.ItemSpacing.x);
+          ImGui::InputTextWithHint("##newprofile","Name",new_profile,sizeof(new_profile)); ImGui::SameLine();
+          if(secondary("Create",new_profile[0]!=0)) {
+            try { create_profile(user,new_profile); profiles=list_profiles(user); save_profile(new_profile); new_profile[0]=0; error.clear(); } catch(const std::exception& e) { error=e.what(); }
+          }
+          if(link("Type with the controller")) { keyboard={new_profile,sizeof(new_profile),"PROFILE NAME"}; show_dialog(Dialog::keyboard); }
+          row("Saves folder");
+          if(secondary("Open saves folder")) {
+            try { (void)profile_args(user,profile); auto dir=profile.empty()?user:user/"profiles"/fs::u8path(profile); fs::create_directories(dir); show_folder(dir); } catch(const std::exception& e) { error=e.what(); }
+          }
+          ImGui::EndTable();
+        }
+        ImGui::EndDisabled();
+        if(gp->archipelago) {
+          section("ARCHIPELAGO");
+          bool named=!user.empty()&&!profile.empty();
+          if(!named&&!ap_link) notice(Mark::warn,"Archipelago needs its own save profile, one per seed. Create or choose one above.",ImGui::GetContentRegionAvail().x);
+          ImGui::BeginDisabled(blocked||!named);
+          bool edited=false;
+          if(rows("archipelago")) {
+            row("Connect when this profile plays");
+            edited|=toggle("##ap",&ap.enabled);
+            auto field=[&](const char* label,const char* hint,char* text,size_t cap,bool secret,const char* id) {
+              row(label); ImGui::PushID(id);
+              ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x,420*s)-ImGui::CalcTextSize("Keyboard").x-2*style.FramePadding.x-style.ItemSpacing.x);
+              ImGui::InputTextWithHint("##field",hint,text,cap,secret?ImGuiInputTextFlags_Password:0); edited|=ImGui::IsItemDeactivatedAfterEdit();
+              ImGui::SameLine(); if(secondary("Keyboard")) { keyboard={text,cap,label,secret,true}; show_dialog(Dialog::keyboard); }
+              ImGui::PopID();
+            };
+            field("Server","archipelago.gg:38281",ap_server,sizeof(ap_server),false,"server");
+            field("Slot name","Your player name in the seed",ap_slot,sizeof(ap_slot),false,"slot");
+            field("Password","Leave empty if the room has none",ap_password,sizeof(ap_password),true,"password");
+            ImGui::EndTable();
+          }
+          if(edited) { try { save_ap(); error.clear(); } catch(const std::exception& e) { error=e.what(); } }
+          ImGui::EndDisabled();
+          if(!ap_link&&named) {
+            if(!ap_bound.empty()) muted(("This profile is bound to "+ap_bound+". Use a new profile for a different seed.").c_str());
+            else muted(game_sel==0?"Not bound to a seed yet. Press Play, then choose Campaign > Play Now (New Game) while connected: that binds this profile to the seed."
+                                  :"Not bound to a seed yet. Press Play, then start a New Game while connected: that binds this profile's save to the seed.");
+          }
+          if(game_sel==0) muted("Preview: the orbs around Pacific City Bank are checks, and Progressive Agility is the only item.");
+          muted("The password is stored only in this profile's folder and is not included in system info.");
+        }
+        if(gp->dlc) {
+          section("DOWNLOADABLE CONTENT");
+          if(dlc_packs.empty()) muted("No DLC packs installed.");
+          for(const auto& pack:dlc_packs) { mark(Mark::ok,s); ImGui::TextUnformatted(pack.title.c_str()); }
+          if(secondary("Install DLC pack...",!blocked)) install_dlc();
+        }
+        if(advanced("saves")) {
+          ImGui::BeginDisabled(blocked||user.empty());
+          if(rows("saves-advanced")) {
+            row("Keep saves with the game (portable)","Copies your saves next to the game and uses them from there. Nothing is deleted.");
+            if(toggle("##portable",&portable)) {
+              // Copies, never moves: the other location keeps its saves, and switching back finds them.
+              const bool want=portable; bool ok=true;
+              auto documents=fs::absolute(default_user_folder(gp->user_folder)).lexically_normal(), local=ghome/"userdata";
+              try {
+                if(want) {
+                  if(!fs::exists(local)) {
+                    // The first copy goes to a staging folder that becomes userdata only once complete, so a
+                    // failed copy never passes for a finished one on the next try.
+                    auto staging=ghome/"userdata.partial";
+                    fs::remove_all(staging); fs::create_directories(staging);
+                    if(fs::is_directory(documents)) for(const auto& item:fs::directory_iterator(documents)) {
+                      auto name=item.path().filename();
+                      if(name=="cache"||name=="logs") continue;  // rebuilt on their own
+                      fs::copy(item.path(),staging/name,fs::copy_options::recursive|fs::copy_options::copy_symlinks);
+                    }
+                    fs::rename(staging,local);
+                  }
+                  std::ofstream marker(ghome/"portable.txt",std::ios::binary|std::ios::trunc);
+                  marker<<"Saves are in userdata\\ next to this file. Delete this file to use Documents\\"<<gp->user_folder<<" again.\n";
+                  marker.close(); if(!marker) throw std::runtime_error("Cannot write portable.txt next to the launcher");
+                } else fs::remove(ghome/"portable.txt");
+              } catch(const std::exception& e) { ok=false; error=e.what(); }
+              // Mode, save root, profile and its Archipelago settings all follow the marker on disk, so
+              // they stay consistent whichever step failed; the profile state is reloaded from the new root
+              // even when a profile of the same name exists in both.
+              std::error_code marker_ec; portable=fs::is_regular_file(ghome/"portable.txt",marker_ec);
+              user=fs::absolute(portable?local:documents).lexically_normal();
+              try { profiles=list_profiles(user); } catch(const std::exception& e) { profiles.clear(); ok=false; error=e.what(); }
+              if(std::find(profiles.begin(),profiles.end(),profile)==profiles.end()) {
+                profile.clear();
+                try { update_config(preferences,{{gp->profile_key,std::nullopt}}); } catch(const std::exception& e) { ok=false; error=e.what(); }
+              }
+              load_ap();
+              if(gp->dlc) dlc_packs=list_content_dlc(user,gp->title_id);
+              if(ok) error.clear();
+            }
+            ImGui::EndTable();
+          }
+          ImGui::EndDisabled();
+          muted((std::string("Saves are in ")+utf8(user)+(portable?". Turning portable off goes back to Documents\\"+std::string(gp->user_folder)+".":". Profiles share the shader cache.")).c_str());
+        }
+      }
+      if(tab==tab_about) {
+        section("VERSION");
+        if(rows("version")) {
+          row("Game release"); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(game_version.empty()?"not installed":game_version.c_str());
+          row("Launcher"); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(LAUNCHER_VERSION);
+          if(kSingleGame<0) { row("Updates from"); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(releases_url(*gp->updates).c_str()); }
+          ImGui::EndTable();
+        }
+        if(kSingleGame<0) {
+          section("UPDATES");
+          ImGui::BeginDisabled(online.busy||!writable);
+          if(rows("updates")) {
+            row("Check when the launcher opens"); focus_first(!online.busy&&writable);
+            bool proposed=auto_updates;
+            if(toggle("##auto",&proposed)) {
+              try { update_config(preferences,{{"auto_updates",proposed?"true":"false"},{"update_consent_asked","true"}}); auto_updates=proposed; if(auto_updates) check_updates(); } catch(const std::exception& e) { error=e.what(); }
+            }
+            row("Include prereleases",launcher_package()?nullptr:"Crackdown 2 always lists them.");
+            proposed=beta_channel;
+            if(toggle("##beta",&proposed)) { try { update_config(preferences,{{"beta_updates",proposed?"true":"false"}}); beta_channel=proposed; } catch(const std::exception& e) { error=e.what(); } }
+            ImGui::EndTable();
+          }
+          ImGui::EndDisabled();
+          if(secondary("Version history and updates")) show_dialog(Dialog::updates);
+        }
+        section("GAME FILES");
         ImGui::BeginDisabled(blocked||manifest.empty());
-        if(ImGui::Button("Change game source...")) show_dialog(Dialog::install);
+        if(secondary("Verify game files",fs::is_directory(game))) { visuals->clear_art(); begin(game,Job::full_check); busy=true; error.clear(); tab=0; focus_page=true; }
+        ImGui::SameLine(); if(secondary("Change game source...")) show_dialog(Dialog::install);
         if(!leftovers.empty()) {
-          ImGui::TextWrapped("%zu unfinished import(s) can be removed.",leftovers.size());
-          if(ImGui::Button("Delete unfinished import")) {
+          ImGui::SameLine();
+          if(secondary("Delete unfinished import")) {
             leftovers=unfinished_imports(ghome,game);
             for(const auto& dir:leftovers) { std::error_code ec; fs::remove_all(dir,ec); if(ec) { error="Cannot delete "+utf8(dir)+": "+ec.message(); break; } }
             leftovers=unfinished_imports(ghome,game);
           }
         }
         ImGui::EndDisabled();
+        if(!leftovers.empty()) muted((std::to_string(leftovers.size())+" unfinished import(s) can be removed.").c_str());
+        section("SUPPORT");
+        if(secondary("Open logs folder")) { try { fs::create_directories(ghome/"logs"); show_folder(ghome/"logs"); } catch(const std::exception& e) { error=e.what(); } }
+        ImGui::SameLine(); if(secondary("Copy system info")) {
+          try { report="Launcher: " LAUNCHER_VERSION "\n"+system_info()+"Game XEX SHA256: "+hash+"\nSave profile: "+(profile.empty()?"default":profile)+"\ncrackdown.toml:\n"+redacted_config(config); if(!SDL_SetClipboardText(report.c_str())) error=SDL_GetError(); else report="System info copied to the clipboard."; }
+          catch(const std::exception& e) { error=e.what(); }
+        }
+        ImGui::SameLine(); if(secondary("Licenses")) { try { show_folder(home/"LICENSES"); } catch(const std::exception& e) { error=e.what(); } }
+        ImGui::SameLine(); if(secondary("Project page",online_authorized||kSingleGame>=0)) { auto url=project_url(*gp->updates); if(!SDL_OpenURL(url.c_str())) error=SDL_GetError(); }
+        muted("Built with SDL3, Dear ImGui, toml++ and stb_image. Barlow fonts: SIL OFL 1.1. Controller prompts: CC0. Game art comes from your own verified files.");
+        if(advanced("about")) muted(visuals->art_status.empty()?"Game art: loaded from your verified files.":("Game art fallback: "+visuals->art_status).c_str());
       }
-      // A separate focusable card, reachable by D-pad/keyboard as well as mouse.
-      if(gp->steam) ImGui::SetCursorPos({std::max(0.f,ImGui::GetContentRegionAvail().x-330*ui_scale),std::max(0.f,ImGui::GetWindowHeight()-90*ui_scale)});
-      ImGui::BeginDisabled(blocked); if(gp->steam&&ImGui::Button("Add Crackdown to Steam",{310*ui_scale,48*ui_scale})) { try { report=add_to_steam(home/(kSingleGame==0?"CrackdownRecomp.exe":"CrackdownLauncher.exe")); error.clear(); } catch(const std::exception& e) { error=e.what(); } } ImGui::EndDisabled();
+      ImGui::EndChild(); ImGui::PopStyleColor();
     }
-    if(tab>=1&&tab<=4) {
-      ImGui::BeginDisabled(blocked); if(tab!=4) focus_first(!blocked);
-      if(tab==1) {
-        if(ImGui::Checkbox("Fullscreen",&fullscreen)) changes["fullscreen"]=fullscreen?std::nullopt:std::optional<std::string>("false");
-        if(ImGui::Combo("Window size",&window_size,"Automatic\0" "1280 x 720\0" "1920 x 1080\0" "2560 x 1440\0")) {
-          const int widths[]={0,1280,1920,2560}, heights[]={0,720,1080,1440}; changes["window_width"]=window_size?std::optional<std::string>(std::to_string(widths[window_size])):std::nullopt; changes["window_height"]=window_size?std::optional<std::string>(std::to_string(heights[window_size])):std::nullopt;
-        }
-        if(ImGui::SliderInt("Monitor (0 = system default)",&monitor,0,16)) changes["monitor"]=monitor?std::optional<std::string>(std::to_string(monitor)):std::nullopt;
-        ImGui::TextDisabled("Game display settings take effect on the next Play.");
-      }
-      if(tab==2) {
-        int resolution=scale>=1&&scale<=3?scale-1:0;
-        if(ImGui::Combo("Internal resolution",&resolution,"720p (default)\0" "1440p\0" "4K (2160p, needs a fast GPU)\0")) { scale=resolution+1; changes["resolution_scale"]=scale==1?std::nullopt:std::optional<std::string>(std::to_string(scale)); changes["draw_resolution_scale_x"]=std::nullopt; changes["draw_resolution_scale_y"]=std::nullopt; }
-        // Aspect ratio and camera speed are Crackdown 1 hooks (hooks_aspect.cpp, hooks_camera.cpp); not ported to Crackdown 2 yet.
-        if(game_sel==0&&ImGui::Combo("Aspect ratio",&aspect,"16:9 (default)\0" "16:10\0" "21:9 (ultrawide)\0" "32:9 (super ultrawide)\0" "4:3\0")) { const char* values[]={nullptr,"16:10","21:9","32:9","4:3"}; changes["aspect_ratio"]=values[aspect]?std::optional<std::string>(toml_string(values[aspect])):std::nullopt; changes["video_mode_width"]=std::nullopt; changes["video_mode_height"]=std::nullopt; }
-        if(ImGui::Combo("Anti-aliasing",&aa,"Off (default)\0FXAA\0FXAA (extreme)\0")) changes["swap_post_effect"]=aa==0?std::nullopt:std::optional<std::string>(toml_string(aa==1?"fxaa":"fxaa_extreme"));
-        if(ImGui::Combo("Texture filtering",&aniso,"Game's own\0Anisotropic 2x\0Anisotropic 4x (default)\0Anisotropic 8x\0Anisotropic 16x\0")) { const char* values[]={"-1","2",nullptr,"4","5"}; changes["anisotropic_override"]=values[aniso]?std::optional<std::string>(values[aniso]):std::nullopt; }
-#if LAUNCHER_FIDELITYFX
-        if(ImGui::Combo("Upscale filter",&filter,"Bilinear\0CAS\0FSR\0")) changes["present_effect"]=filter==0?std::nullopt:std::optional<std::string>(toml_string(filter==1?"cas":"fsr"));
-#else
-        ImGui::TextDisabled("Upscale filter: Bilinear (this build)");
-#endif
-        if(game_sel==0) {
-          // 120 / 144: the host paces frames above 60 (hooks_framerate.cpp PaceFrame); co-op holds 60 (host_tuning.cpp).
-          if(ImGui::Combo("Frame rate",&rate,"60 fps (default)\0" "30 fps (stock)\0" "120 fps (experimental)\0" "144 fps (experimental)\0")) { changes["vsync"]=rate==1?std::optional<std::string>("true"):std::nullopt; changes["fps_cap"]=rate==2?std::optional<std::string>("120"):rate==3?std::optional<std::string>("144"):std::nullopt; }
-        } else {
-          // Crackdown 2: 60 fps by default (crackdown2.exe sets fps_cap=60 + its measured game clock); 30 = host cap.
-          if(ImGui::Combo("Frame rate",&rate,"60 fps (default)\0" "30 fps (stock)\0")) { changes["fps_cap"]=rate?std::optional<std::string>("30"):std::nullopt; changes["sim_game_clock"]=std::nullopt; changes["vsync"]=std::nullopt; }
-        }
-        ImGui::TextDisabled("In game: F3 shows the frame rate, F11 switches between fullscreen and a window.");
-      }
-      if(tab==3) {
-        int language_index=language-1;
-        if(ImGui::Combo("Language",&language_index,"English\0Japanese\0German\0French\0Spanish\0Italian\0Korean\0Chinese (Traditional)\0Portuguese\0Chinese (Simplified)\0")) { language=language_index+1; changes["user_language"]=language==1?std::nullopt:std::optional<std::string>(std::to_string(language)); }
-        ImGui::TextDisabled("Takes effect on the next Play. The disc may not include every language.");
-        if(ImGui::Checkbox("Skip intro logos",&skip_intro)) changes["skip_intro_videos"]=skip_intro?std::nullopt:std::optional<std::string>("false");
-        if(ImGui::Checkbox("Mute audio",&mute)) changes["audio_mute"]=mute?std::optional<std::string>("true"):std::nullopt;
-        if(ImGui::Checkbox("Close launcher after Play",&close_on_play)) {
-          try { update_config(preferences,{{"close_on_play",close_on_play?std::optional<std::string>("true"):std::nullopt}}); } catch(const std::exception& e) { error=e.what(); }
-        }
-        if(gp->coop) ImGui::SeparatorText("Co-op (System Link, experimental)");
-        bool coop_edit=gp->coop&&ImGui::Checkbox("Play co-op with another PC",&coop.enabled);
-        if(coop_edit&&coop.enabled&&!coop_own[0]&&!coop_addresses.empty()) std::snprintf(coop_own,sizeof(coop_own),"%s",coop_addresses.front().c_str());
-        if(gp->coop&&coop.enabled) {
-          int role=coop.join?1:0;
-          if(ImGui::Combo("Role",&role,"Player 1 (hosts)\0Player 2 (joins)\0")) { coop.join=role==1; coop_edit=true; }
-          ImGui::SetNextItemWidth(280*ui_scale); coop_edit|=ImGui::InputTextWithHint("Your address",coop_addresses.empty()?"e.g. 192.168.1.20":coop_addresses.front().c_str(),coop_own,sizeof(coop_own));
-          for(const auto& address:coop_addresses) { ImGui::SameLine(); if(ImGui::SmallButton(address.c_str())) { std::snprintf(coop_own,sizeof(coop_own),"%s",address.c_str()); coop_edit=true; } }
-          ImGui::SetNextItemWidth(280*ui_scale); coop_edit|=ImGui::InputTextWithHint("Other player's address","e.g. 192.168.1.21",coop_partner,sizeof(coop_partner));
-          ImGui::TextWrapped("Both players need the same game version. Co-op runs at 30 fps. Over the internet, use Tailscale addresses (100.x.y.z). In the game: Campaign > Play Now - Co-op. %s",
-                             coop.join?"Player 2 has a separate save, which starts fresh (see SETUP.md to copy yours).":"Player 1 keeps their normal save.");
-        }
-        if(coop_edit) {
-          coop.own_address=coop_own; coop.partner_address=coop_partner;
-          try { for(auto& [key,v]:coop_changes(coop)) changes[key]=v; coop_error.clear(); } catch(const std::exception& e) { coop_error=e.what(); }
-        }
-        if(gp->coop&&coop.enabled&&!coop_error.empty()) ImGui::TextColored({1.f,.45f,.4f,1.f},"%s",coop_error.c_str());
-      }
-      if(tab==4) {
-        ImGui::Text("Input backend: %s",input_backend.c_str());
-        focus_first(!blocked);
-        if(game_sel==0&&ImGui::SliderFloat("Camera turn speed",&camera_speed,0.25f,4.0f,"%.2fx")) {
-          char text[16]; std::snprintf(text,sizeof(text),"%.2f",camera_speed);
-          changes["camera_sensitivity"]=std::abs(camera_speed-1.0f)<0.005f?std::nullopt:std::optional<std::string>(text);
-        }
-        if(game_sel==0) ImGui::TextWrapped("How fast the right stick (or the mouse) turns the camera. 1.00x is the original speed.");
-        if(ImGui::Checkbox("Mouse / keyboard mode",&mnk)) changes["mnk_mode"]=mnk?std::optional<std::string>("true"):std::nullopt;
-        if(mnk) {
-          if(ImGui::SliderFloat("Mouse sensitivity",&mouse_sens,0.1f,5.0f,"%.2f")) {
-            char text[16]; std::snprintf(text,sizeof(text),"%.2f",mouse_sens);
-            changes["mnk_sensitivity"]=std::abs(mouse_sens-1.0f)<0.005f?std::nullopt:std::optional<std::string>(text);
-          }
-          ImGui::TextWrapped("Game: WASD moves, the mouse aims, Enter or X is Start, left click fires, right click locks on, Space is A (jump), Backspace is B, L is the X button, P is Y, 1 / 3 are the bumpers, Tab is Back. Shift+arrows is the D-pad.");
-        }
-        ImGui::TextWrapped("Launcher: D-pad or left stick moves, the confirm button selects, and the back button returns. Shoulder buttons switch tabs. Keyboard: arrows, Enter, Esc, Q/E.");
-      }
-      if(ImGui::Button(changes.empty()?"Save settings":"Save settings *")) save_settings();
-      ImGui::EndDisabled();
-    }
-    if(tab==5) {
-      ImGui::BeginDisabled(blocked||user.empty()); focus_first(!blocked&&!user.empty());
-      if(ImGui::BeginCombo("Profile",profile.empty()?"Default (existing saves)":profile.c_str())) {
-        try { if(ImGui::Selectable("Default (existing saves)",profile.empty())) save_profile(""); for(const auto& name:profiles) if(ImGui::Selectable(name.c_str(),name==profile)) save_profile(name); }
-        catch(const std::exception& e) { error=e.what(); } ImGui::EndCombo();
-      }
-      ImGui::SetNextItemWidth(280*ui_scale); ImGui::InputTextWithHint("##newprofile","New profile name",new_profile,sizeof(new_profile));
-      if(ImGui::Button("Enter profile name...")) { keyboard={new_profile,sizeof(new_profile),"PROFILE NAME"}; show_dialog(Dialog::keyboard); }
-      ImGui::SameLine(); if(ImGui::Button("Create profile")) {
-        try { create_profile(user,new_profile); profiles=list_profiles(user); save_profile(new_profile); new_profile[0]=0; error.clear(); } catch(const std::exception& e) { error=e.what(); }
-      }
-      if(ImGui::Button("Open saves folder")) {
-        try { (void)profile_args(user,profile); auto dir=profile.empty()?user:user/"profiles"/fs::u8path(profile); fs::create_directories(dir); show_folder(dir); } catch(const std::exception& e) { error=e.what(); }
-      }
-      if(ImGui::Checkbox("Keep saves with the game (portable)",&portable)) {
-        // Copies, never moves: the other location keeps its saves, and switching back finds them.
-        const bool want=portable; bool ok=true;
-        auto documents=fs::absolute(default_user_folder(gp->user_folder)).lexically_normal(), local=ghome/"userdata";
-        try {
-          if(want) {
-            if(!fs::exists(local)) {
-              // The first copy goes to a staging folder that becomes userdata only once complete, so a
-              // failed copy never passes for a finished one on the next try.
-              auto staging=ghome/"userdata.partial";
-              fs::remove_all(staging); fs::create_directories(staging);
-              if(fs::is_directory(documents)) for(const auto& item:fs::directory_iterator(documents)) {
-                auto name=item.path().filename();
-                if(name=="cache"||name=="logs") continue;  // rebuilt on their own
-                fs::copy(item.path(),staging/name,fs::copy_options::recursive|fs::copy_options::copy_symlinks);
-              }
-              fs::rename(staging,local);
-            }
-            std::ofstream marker(ghome/"portable.txt",std::ios::binary|std::ios::trunc);
-            marker<<"Saves are in userdata\\ next to this file. Delete this file to use Documents\\"<<gp->user_folder<<" again.\n";
-            marker.close(); if(!marker) throw std::runtime_error("Cannot write portable.txt next to the launcher");
-          } else fs::remove(ghome/"portable.txt");
-        } catch(const std::exception& e) { ok=false; error=e.what(); }
-        // Mode, save root, profile and its Archipelago settings all follow the marker on disk, so
-        // they stay consistent whichever step failed; the profile state is reloaded from the new root
-        // even when a profile of the same name exists in both.
-        std::error_code marker_ec; portable=fs::is_regular_file(ghome/"portable.txt",marker_ec);
-        user=fs::absolute(portable?local:documents).lexically_normal();
-        try { profiles=list_profiles(user); } catch(const std::exception& e) { profiles.clear(); ok=false; error=e.what(); }
-        if(std::find(profiles.begin(),profiles.end(),profile)==profiles.end()) {
-          profile.clear();
-          try { update_config(preferences,{{gp->profile_key,std::nullopt}}); } catch(const std::exception& e) { ok=false; error=e.what(); }
-        }
-        load_ap();
-        if(ok) error.clear();
-      }
-      if(gp->dlc) {
-        ImGui::SeparatorText("Downloadable content");
-        if(dlc_packs.empty()) ImGui::TextDisabled("No DLC packs installed. Use INSTALL DLC on the home page.");
-        for(const auto& pack:dlc_packs) ImGui::BulletText("%s",pack.title.c_str());
-        if(ImGui::Button("Install DLC pack...")) { package_kind=2; show_dialog(Dialog::package); }
-      }
-      ImGui::EndDisabled();
-      if(portable) ImGui::TextWrapped("Saves are in userdata next to the game. Turning this off goes back to Documents\\%s; nothing is deleted.",gp->user_folder);
-      else ImGui::TextWrapped("%s","A new profile starts with no save: choose New Game. Profiles share the shader cache. Portable mode copies your saves next to the launcher and uses them from there.");
-    }
-    if(tab==tab_ap&&gp->archipelago) {
-      bool named=!user.empty()&&!profile.empty();
-      ImGui::BeginDisabled(blocked||!named); focus_first(!blocked&&named);
-      bool edited=ImGui::Checkbox("Connect to Archipelago when this profile plays",&ap.enabled);
-      auto field=[&](const char* label,const char* hint,char* text,size_t size,bool secret) {
-        ImGui::PushID(label); ImGui::SetNextItemWidth(430*ui_scale);
-        ImGui::InputTextWithHint(label,hint,text,size,secret?ImGuiInputTextFlags_Password:0); edited|=ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine(); if(ImGui::Button("Keyboard...")) { keyboard={text,size,label,secret,true}; show_dialog(Dialog::keyboard); }
-        ImGui::PopID();
-      };
-      field("Server","archipelago.gg:38281",ap_server,sizeof(ap_server),false);
-      field("Slot name","Your player name in the seed",ap_slot,sizeof(ap_slot),false);
-      field("Password","Leave empty if the room has none",ap_password,sizeof(ap_password),true);
-      if(edited) { try { save_ap(); error.clear(); } catch(const std::exception& e) { error=e.what(); } }
-      ImGui::EndDisabled();
-      if(!named) ImGui::TextWrapped("Archipelago needs its own save profile, one per seed. Create one on the SAVES tab, then come back here.");
-      if(ap_link) {
-        ImGui::Separator();
-        ImGui::TextWrapped("Room link: slot \"%s\" on %s.",ap_link->slot.c_str(),ap_link->server.c_str());
-        if(!named) ImGui::TextWrapped("Select or create the save profile for this seed on the SAVES tab, then apply the link here.");
-        ImGui::BeginDisabled(blocked||!named);
-        if(ImGui::Button("Use this room link for this profile")) {
-          if(ap_link->server.size()>=sizeof(ap_server)||ap_link->slot.size()>=sizeof(ap_slot)||ap_link->password.size()>=sizeof(ap_password))
-            error="The room link's server, slot name or password is too long";
-          else {
-            ap.enabled=true;
-            std::snprintf(ap_server,sizeof(ap_server),"%s",ap_link->server.c_str()); std::snprintf(ap_slot,sizeof(ap_slot),"%s",ap_link->slot.c_str());
-            std::snprintf(ap_password,sizeof(ap_password),"%s",ap_link->password.c_str());
-            try { save_ap(); ap_link.reset(); error.clear(); } catch(const std::exception& e) { error=e.what(); }
-          }
-        }
-        ImGui::EndDisabled();
-      }
-      else if(!ap_bound.empty()) ImGui::TextWrapped("This profile is bound to %s. Use a new profile for a different seed.",ap_bound.c_str());
-      else ImGui::TextWrapped(game_sel==0?"Not bound to a seed yet. Press Play, then choose Campaign > Play Now (New Game) while connected: that binds this profile to the seed."
-                                            :"Not bound to a seed yet. Press Play, then start a New Game while connected: that binds this profile's save to the seed.");
-      if(game_sel==0) ImGui::TextDisabled("Preview: the orbs around Pacific City Bank are checks, and Progressive Agility is the only item.");
-      ImGui::TextDisabled("The password is stored only in this profile's folder and is not included in system info.");
-    }
-    if(tab==tab_about) {
-      ImGui::Text("Crackdown Recomp / Launcher %s (selected: %s)",LAUNCHER_VERSION,gp->title);
-      if(kSingleGame<0) ImGui::TextWrapped("Update source for %s: %s",gp->title,releases_url(*gp->updates).c_str());
-      if(!launcher_package()) { auto v=current_version(); ImGui::TextWrapped("Installed %s release: %s",gp->title,v.empty()?"none":v.c_str()); }
-      ImGui::TextWrapped("Standalone front end using SDL3, Dear ImGui, toml++ and stb_image. Barlow fonts: SIL OFL 1.1. Controller prompts: CC0. Game art comes from your verified files.");
-      focus_first(); if(ImGui::Button("Open licenses")) { try { show_folder(home/"LICENSES"); } catch(const std::exception& e) { error=e.what(); } }
-      ImGui::SameLine(); ImGui::BeginDisabled(!online_authorized&&kSingleGame<0); if(ImGui::Button("Open repository")) { auto url=project_url(*gp->updates); if(!SDL_OpenURL(url.c_str())) error=SDL_GetError(); } ImGui::EndDisabled();
-      if(ImGui::Button("Open logs folder")) { try { fs::create_directories(ghome/"logs"); show_folder(ghome/"logs"); } catch(const std::exception& e) { error=e.what(); } }
-      ImGui::SameLine(); if(ImGui::Button("Copy system info")) {
-        try { report="Launcher: " LAUNCHER_VERSION "\n"+system_info()+"Game XEX SHA256: "+hash+"\nSave profile: "+(profile.empty()?"default":profile)+"\ncrackdown.toml:\n"+redacted_config(config); if(!SDL_SetClipboardText(report.c_str())) error=SDL_GetError(); }
-        catch(const std::exception& e) { error=e.what(); }
-      }
-      if(kSingleGame<0) {
-      ImGui::BeginDisabled(online.busy||!writable);
-      bool proposed=auto_updates;
-      if(ImGui::Checkbox("Check for updates when the launcher opens",&proposed)) {
-        try { update_config(preferences,{{"auto_updates",proposed?"true":"false"},{"update_consent_asked","true"}}); auto_updates=proposed; if(auto_updates) check_updates(); } catch(const std::exception& e) { error=e.what(); }
-      }
-      proposed=beta_channel;
-      if(ImGui::Checkbox(launcher_package()?"Include prereleases":"Include Crackdown prereleases (Crackdown 2 always lists them)",&proposed)) { try { update_config(preferences,{{"beta_updates",proposed?"true":"false"}}); beta_channel=proposed; } catch(const std::exception& e) { error=e.what(); } }
-      ImGui::EndDisabled();
-      if(ImGui::Button("Version history / updates")) show_dialog(Dialog::updates);
-      }
-      if(!visuals->art_status.empty()) ImGui::TextWrapped("Art fallback: %s",visuals->art_status.c_str());
-    }
-    if(online.busy) ImGui::TextUnformatted(online.install?"Installing update...":"Checking updates...");
-    if(!error.empty()) { ImGui::Spacing(); ImGui::TextWrapped("%s",error.c_str()); }
-    if(!report.empty()&&tab==0) ImGui::TextWrapped("%s",report.c_str());
-    if(!crash.empty()) { ImGui::BeginChild("Startup log",{0,130*ui_scale},true); ImGui::TextUnformatted(crash.c_str()); ImGui::EndChild(); }
     ImGui::EndChild();
-    ImGui::Separator(); ImGui::Text(gp->archipelago?"GAME  %s     PROFILE  %s     ARCHIPELAGO  %s     VERSION  %s":"GAME  %s     PROFILE  %s%.0s     VERSION  %s",busy?"Checking...":verified?"Ready to play":"Not installed",profile.empty()?"Default":profile.c_str(),!profile.empty()&&ap.enabled?"On":"Off",game_version.empty()?"-":game_version.c_str());
-    visuals->hints(device,ui_scale);
+    // ---- Footer: status on the left, controller / keyboard hints on the right ----
+    draw->AddLine({margin,size.y-footer_h},{size.x-margin,size.y-footer_h},ImGui::GetColorU32(ImVec4{1,1,1,.08f}),1);
+    ImGui::SetCursorPos({margin,size.y-footer_h+(footer_h-ImGui::GetTextLineHeight())*.5f});
+    if(online.busy) { ImGui::TextColored(kMuted,"%s",online.install?"Installing update...":"Checking for updates..."); }
+    else ImGui::TextColored(kMuted,"Launcher %s",LAUNCHER_VERSION);
+    ImGui::SameLine(); ImGui::SetCursorPosY(size.y-footer_h+(footer_h-28*s)*.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{margin,0}); visuals->hints(device,ui_scale); ImGui::PopStyleVar();
     ImGui::End();
+    // Settings save on their own once no control is being dragged or typed in.
+    if(!changes.empty()&&writable&&!ImGui::IsAnyItemActive()&&!process.running()) save_settings();
+    auto dialog_title=[&](const char* text) { ImGui::PushFont(visuals->heading,32); ImGui::TextUnformatted(text); ImGui::PopFont(); };
     if(ask_updates) ImGui::OpenPopup("Update preferences");
-    ImGui::SetNextWindowSize({610*ui_scale,0},ImGuiCond_Always);
-    if(ImGui::BeginPopupModal("Update preferences",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::TextWrapped("Allow the launcher to check for new releases on GitLab when it opens? No request is made until you enable this. You can always check manually.");
-      ImGui::TextWrapped("Update sources: %s (Crackdown and this launcher) and %s (Crackdown 2).",releases_url(cd1_updates).c_str(),releases_url(cd2_updates).c_str());
+    ImGui::SetNextWindowSize({620*s,0},ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{30*s,24*s});
+    ImGui::SetNextWindowPos({size.x*.5f,size.y*.5f},ImGuiCond_Always,{.5f,.5f});
+    if(ImGui::BeginPopupModal("Update preferences",nullptr,ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoTitleBar)) {
+      dialog_title("Check for updates?");
+      ImGui::TextWrapped("The launcher can look for new releases on GitLab when it opens. Nothing is requested until you allow it, and you can always check by hand.");
+      muted(("Sources: "+releases_url(cd1_updates)+" (Crackdown and this launcher) and "+releases_url(cd2_updates)+" (Crackdown 2).").c_str());
       auto consent=[&](bool enabled) {
         try { update_config(preferences,{{"auto_updates",enabled?"true":"false"},{"update_consent_asked","true"}}); auto_updates=enabled; ask_updates=false; ImGui::CloseCurrentPopup(); focus_page=true; if(enabled) check_updates(); }
         catch(const std::exception& e) { error=e.what(); }
       };
+      ImGui::Spacing();
       if(ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-      ImGui::BeginDisabled(!writable); if(ImGui::Button("Enable update checks")) consent(true); ImGui::SameLine(); if(ImGui::Button("Keep checks off")||back) consent(false); ImGui::EndDisabled();
-      if(!writable && ImGui::Button("Continue with checks off")) { ask_updates=false; auto_updates=false; ImGui::CloseCurrentPopup(); focus_page=true; }
+      ImGui::BeginDisabled(!writable);
+      bool yes=primary("CHECK FOR UPDATES",{260,50},writable,24); ImGui::SameLine(); bool no=secondary("Not now",writable,{0,50});
+      if(yes) consent(true); if(no||back) consent(false);
+      ImGui::EndDisabled();
+      if(!writable && secondary("Continue with checks off")) { ask_updates=false; auto_updates=false; ImGui::CloseCurrentPopup(); focus_page=true; }
       if(!error.empty()) ImGui::TextWrapped("%s",error.c_str()); ImGui::EndPopup();
     }
+    ImGui::PopStyleVar();
     if(open_dialog) { ImGui::OpenPopup("Launcher action"); open_dialog=false; }
-    ImGui::SetNextWindowSize({std::min(size.x-48*ui_scale,800*ui_scale),std::min(size.y-80*ui_scale,580*ui_scale)},ImGuiCond_Always);
-    if(ImGui::BeginPopupModal("Launcher action",nullptr,ImGuiWindowFlags_NoSavedSettings)) {
+    ImGui::SetNextWindowSize({std::min(size.x-48*s,780*s),dialog==Dialog::browser||dialog==Dialog::updates?std::min(size.y-80*s,580*s):0.f},ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{30*s,24*s});
+    ImGui::SetNextWindowPos({size.x*.5f,size.y*.5f},ImGuiCond_Always,{.5f,.5f});
+    if(ImGui::BeginPopupModal("Launcher action",nullptr,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize)) {
       bool child_popup=ImGui::IsPopupOpen("",ImGuiPopupFlags_AnyPopupId);
       auto close_dialog=[&] { ImGui::CloseCurrentPopup(); dialog=Dialog::none; focus_page=true; };
       auto modal_focus=[&] { if(dialog_focus) { ImGui::SetKeyboardFocusHere(); dialog_focus=false; } };
       if(dialog==Dialog::install) {
-        ImGui::TextUnformatted("INSTALL GAME"); ImGui::TextWrapped("%s Your source files are kept in place.",gp->disc_hint);
-        modal_focus();
-        auto browser=[&](bool folder) { folder_browser=folder; package_kind=0; browse=fs::is_directory(game)?game:ghome; refresh_browser(); dialog=Dialog::browser; dialog_focus=true; };
-        if(ImGui::Button("Browse ISO")) browser(false);
-        ImGui::SameLine(); if(ImGui::Button("Browse extracted folder")) browser(true);
-        if(ImGui::Button("Native ISO picker (keyboard / mouse)")) {
-          { std::lock_guard lock(picker.mutex); picker.pending=true; picker.folder=false; picker.kind=0; }
-          static const SDL_DialogFileFilter filters[]={{"Xbox disc image","iso"}};
-          SDL_ShowOpenFileDialog(picked,&picker,window,filters,1,nullptr,false); close_dialog();
-        }
-        if(ImGui::Button("Native folder picker (keyboard / mouse)")) {
-          { std::lock_guard lock(picker.mutex); picker.pending=true; picker.folder=true; picker.kind=0; }
-          SDL_ShowOpenFolderDialog(picked,&picker,window,nullptr,false); close_dialog();
-        }
+        dialog_title("Install game"); ImGui::TextWrapped("%s",gp->disc_hint); muted("Your source files are kept in place.");
+        ImGui::Spacing(); modal_focus();
+        auto choose=[&](bool folder) { if(device=="keyboard") { native_pick(folder,0); close_dialog(); } else browse_files(folder,0); };
+        if(primary("DISC IMAGE (ISO)",{260,52},true,26)) choose(false);
+        ImGui::SameLine(); if(secondary("Extracted folder",true,{0,52})) choose(true);
+        if(device=="keyboard"&&link("Use the built-in file browser")) browse_files(false,0);
       } else if(dialog==Dialog::browser) {
-        ImGui::TextUnformatted(package_kind==1?"SELECT TITLE UPDATE PACKAGE":package_kind==2?"SELECT DLC PACKAGE":folder_browser?"SELECT GAME FOLDER":"SELECT DISC IMAGE"); ImGui::TextWrapped("%s",utf8(browse).c_str()); modal_focus();
-        if(ImGui::BeginCombo("Location",utf8(browse).c_str())) {
+        dialog_title(package_kind==1?"Select title update package":package_kind==2?"Select DLC package":folder_browser?"Select game folder":"Select disc image");
+        muted(utf8(browse).c_str()); modal_focus();
+        ImGui::SetNextItemWidth(220*s);
+        if(ImGui::BeginCombo("##location","Go to drive")) {
           for(const auto& root:browse_roots) if(ImGui::Selectable(utf8(root).c_str())) { browse=root; refresh_browser(); dialog_focus=true; } ImGui::EndCombo();
         }
-        if(ImGui::Button("Parent folder")) { if(browse.has_parent_path()) { browse=browse.parent_path(); refresh_browser(); dialog_focus=true; } }
-        if(folder_browser) { ImGui::SameLine(); if(ImGui::Button("Use this folder")) { visuals->clear_art(); begin(browse,Job::full_check); busy=true; tab=0; close_dialog(); } }
-        ImGui::BeginChild("Files",{0,-58*ui_scale},true);
+        ImGui::SameLine(); if(secondary("Up one folder")) { if(browse.has_parent_path()) { browse=browse.parent_path(); refresh_browser(); dialog_focus=true; } }
+        if(folder_browser) { ImGui::SameLine(); if(primary("USE THIS FOLDER",{220,0},true,22)) { visuals->clear_art(); begin(browse,Job::full_check); busy=true; tab=0; close_dialog(); } }
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4{0,0,0,.25f});
+        ImGui::BeginChild("Files",{0,-64*s},ImGuiChildFlags_Borders);
         std::optional<fs::path> chosen; bool directory=false;
         for(size_t i=0;i<browse_entries.size();++i) {
-          const auto& e=browse_entries[i]; std::error_code ec; bool dir=e.is_directory(ec); auto name=(dir?"[Folder] ":"[ISO] ")+utf8(e.path().filename()); ImGui::PushID(static_cast<int>(i));
-          if(ImGui::Selectable(name.c_str())) { chosen=e.path(); directory=dir; } ImGui::PopID();
+          const auto& e=browse_entries[i]; std::error_code ec; bool dir=e.is_directory(ec); auto name=utf8(e.path().filename()); ImGui::PushID(static_cast<int>(i));
+          if(dir) ImGui::PushStyleColor(ImGuiCol_Text,kAccent);
+          if(ImGui::Selectable((dir?name+"\\":name).c_str())) { chosen=e.path(); directory=dir; }
+          if(dir) ImGui::PopStyleColor();
+          ImGui::PopID();
         }
-        ImGui::EndChild();
+        if(browse_entries.empty()) muted(folder_browser?"No folders here.":package_kind?"No files here.":"No disc images (.iso) here.");
+        ImGui::EndChild(); ImGui::PopStyleColor();
         if(chosen) {
           if(directory) { browse=*chosen; refresh_browser(); dialog_focus=true; }
-          else if(package_kind) { begin(*chosen,package_kind==1?Job::title_update:Job::dlc_pack); busy=true; error.clear(); report.clear(); tab=0; close_dialog(); }
+          else if(package_kind) { begin(*chosen,package_kind==1?Job::title_update:Job::dlc_pack); busy=true; error.clear(); report.clear(); if(!setup) tab=0; close_dialog(); }
           else { visuals->clear_art(); begin(*chosen,Job::import_iso); busy=true; tab=0; close_dialog(); }
         }
       } else if(dialog==Dialog::keyboard) {
         auto& k=keyboard; auto n=std::char_traits<char>::length(k.text);
-        ImGui::TextUnformatted(k.title); ImGui::Text("%s",k.secret?std::string(n,'*').c_str():k.text); modal_focus();
+        dialog_title(k.title);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4{0,0,0,.3f}); ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{14*s,10*s});
+        ImGui::BeginChild("Typed",{0,ImGui::GetTextLineHeight()+20*s},ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding,ImGuiWindowFlags_NoScrollbar);
+        ImGui::Text("%s_",k.secret?std::string(n,'*').c_str():k.text); ImGui::EndChild(); ImGui::PopStyleVar(); ImGui::PopStyleColor();
+        modal_focus();
         auto type=[&](char c) { if(n<k.size-1) { k.text[n]=c; k.text[++n]=0; } };
         const char* keys=k.ap?"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:/@!#$%&*+=?~":"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.";
-        for(size_t i=0;keys[i];++i) { if(i%10) ImGui::SameLine(); char label[]={keys[i],0}; ImGui::PushID(static_cast<int>(i)); if(ImGui::Button(label,{40*ui_scale,35*ui_scale})) type(keys[i]); ImGui::PopID(); }
-        if(ImGui::Button("Space")) type(' '); ImGui::SameLine();
-        if(ImGui::Button("Backspace")) { if(n) k.text[--n]=0; } ImGui::SameLine();
-        if(ImGui::Button("Done")) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{6*s,6*s});
+        for(size_t i=0;keys[i];++i) { if(i%13) ImGui::SameLine(); char label[]={keys[i],0}; ImGui::PushID(static_cast<int>(i)); if(ImGui::Button(label,{46*s,40*s})) type(keys[i]); ImGui::PopID(); }
+        ImGui::PopStyleVar();
+        if(secondary("Space",true,{120,0})) type(' '); ImGui::SameLine();
+        if(secondary("Backspace",true,{140,0})) { if(n) k.text[--n]=0; } ImGui::SameLine();
+        if(primary("DONE",{140,0},true,22)) {
           if(k.ap) { try { save_ap(); error.clear(); } catch(const std::exception& e) { error=e.what(); } }
           close_dialog();
         }
       } else if(dialog==Dialog::updates) {
         auto installed=current_version();
-        ImGui::Text("UPDATES / VERSION HISTORY: %s",gp->title); ImGui::TextWrapped("Update source: %s. Installed: %s",releases_url(*gp->updates).c_str(),installed.empty()?"none":installed.c_str());
-        modal_focus(); ImGui::BeginDisabled(online.busy);
-        if(ImGui::Button("Check for updates")) check_updates(); ImGui::EndDisabled();
+        dialog_title((std::string(gp->title)+" updates").c_str()); muted(("From "+releases_url(*gp->updates)+". Installed: "+(installed.empty()?"none":installed)).c_str());
+        modal_focus();
         if(online.busy) {
-          ImGui::TextUnformatted(online.install?"Downloading, verifying and staging update...":"Checking releases..."); ImGui::ProgressBar(-float(SDL_GetTicks()%10000)/1000.f,{0,0});
-          if(ImGui::Button("Cancel update operation")) online.cancel=true;
+          ImGui::TextUnformatted(online.install?"Downloading, verifying and staging the update...":"Checking releases..."); ImGui::ProgressBar(-float(SDL_GetTicks()%10000)/1000.f,{-FLT_MIN,10*s},"");
+          if(secondary("Cancel")) online.cancel=true;
         } else {
-          ImGui::TextWrapped("%s",online.message.c_str());
-          ImGui::BeginChild("Release history",{0,-58*ui_scale},true);
+          if(secondary("Check again")) check_updates(); ImGui::SameLine(); ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(online.message.c_str());
+          ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4{0,0,0,.25f});
+          ImGui::BeginChild("Release history",{0,-64*s},ImGuiChildFlags_Borders|ImGuiChildFlags_AlwaysUseWindowPadding);
           for(size_t i=0;i<online.releases.size();++i) {
             const auto& r=online.releases[i]; ImGui::PushID(static_cast<int>(i));
-            ImGui::Text("%s%s",r.tag.c_str(),r.prerelease?" (prerelease)":""); ImGui::TextWrapped("%s",r.notes.c_str());
+            ImGui::PushFont(visuals->title,24); ImGui::TextUnformatted(r.tag.c_str()); ImGui::PopFont();
+            if(r.prerelease) { ImGui::SameLine(); ImGui::TextColored(kWarn,"prerelease"); }
             bool newer=installed.empty()||compare_versions(r.tag,installed)>0;
-            ImGui::BeginDisabled(!newer||r.zip_url.empty()||r.sha_url.empty()||blocked||online.game!=game_sel);
-            if(ImGui::Button(installed.empty()?"Install":"Update now")) install_update(r); ImGui::EndDisabled(); ImGui::Separator(); ImGui::PopID();
+            if(newer) {
+              ImGui::SameLine(std::max(ImGui::GetCursorPosX(),ImGui::GetContentRegionAvail().x+ImGui::GetCursorPosX()-200*s));
+              if(primary(installed.empty()?"INSTALL":"UPDATE",{180,0},!(r.zip_url.empty()||r.sha_url.empty()||blocked||online.game!=game_sel),20)) install_update(r);
+            }
+            muted(r.notes.c_str()); ImGui::Separator(); ImGui::PopID();
             if(online.busy) break;
           }
-          ImGui::EndChild();
+          ImGui::EndChild(); ImGui::PopStyleColor();
         }
       } else if(dialog==Dialog::package) {
-        ImGui::TextUnformatted(package_kind==1?"INSTALL TITLE UPDATE":"INSTALL DLC");
+        dialog_title(package_kind==1?"Install title update":"Install DLC");
         ImGui::TextWrapped(package_kind==1
           ?(gp->update_exe
-              ?"Select %s's Title Update #6 package (TU_16L61US_0000004000000.00000000001G1, from a console's Content\\0000000000000000\\4D5307DC\\000B0000 folder). The launcher checks it and unpacks it into tu\\; Play then starts the title update build, which the Free-For-All Pack (Keys to the City, Street Racing) needs. The package itself is kept."
-              :"Select %s's title update package (a file named like TU_16L625S_0000004000000.0000000000181, from a console's Content\\0000000000000000\\<title id>\\000B0000 folder). The launcher checks it, puts default.xexp next to the game's default.xex and unpacks the rest into tu\\. The package itself is kept.")
-          :"Select a %s DLC package (from a console's Content\\0000000000000000\\<title id>\\00000002 folder; keep its original file name). It is unpacked once into your save folder and every profile can use it. The package itself is kept.",gp->title);
-        modal_focus();
-        if(ImGui::Button("Browse files")) { folder_browser=false; browse=ghome; refresh_browser(); dialog=Dialog::browser; dialog_focus=true; }
-        if(ImGui::Button("Native file picker (keyboard / mouse)")) {
-          { std::lock_guard lock(picker.mutex); picker.pending=true; picker.folder=false; picker.kind=package_kind; }
-          SDL_ShowOpenFileDialog(picked,&picker,window,nullptr,0,nullptr,false); close_dialog();
-        }
+              ?"Select %s's Title Update #6 package (TU_16L61US_0000004000000.00000000001G1, from a console's Content\\0000000000000000\\4D5307DC\\000B0000 folder). The launcher checks it and unpacks it into tu\\; Play then starts the title update build, which the Free-For-All Pack (Keys to the City, Street Racing) needs."
+              :"Select %s's title update package (a file named like TU_16L625S_0000004000000.0000000000181, from a console's Content\\0000000000000000\\<title id>\\000B0000 folder). The launcher checks it, puts default.xexp next to the game's default.xex and unpacks the rest into tu\\.")
+          :"Select a %s DLC package (from a console's Content\\0000000000000000\\<title id>\\00000002 folder; keep its original file name). It is unpacked once into your save folder and every profile can use it.",gp->title);
+        muted("The package itself is kept.");
+        ImGui::Spacing(); modal_focus();
+        if(primary("CHOOSE PACKAGE",{260,52},true,26)) { if(device=="keyboard") { native_pick(false,package_kind); close_dialog(); } else browse_files(false,package_kind); }
+        if(device=="keyboard") { ImGui::SameLine(); if(secondary("Built-in browser",true,{0,52})) browse_files(false,package_kind); }
       } else if(dialog==Dialog::save_warning) {
-        ImGui::TextUnformatted("TITLE UPDATE SAVE");
+        dialog_title("Title update save");
         ImGui::TextWrapped("This profile's save was made by the title update build, and Play is about to start the disc build (%s). The disc build can't read it: it will say \"Save Game Damaged\" and ask whether to overwrite it. Answering Yes there replaces your title update progress with a new game.",
           !update_exe_ready()?"the title update isn't installed":!ap_args(profile.empty()?ApConnection{}:ap).empty()?"Archipelago runs on the disc build":"the title update is turned off");
-        for(const auto& save:disc_unreadable) ImGui::TextDisabled("%s",utf8(save).c_str());
+        for(const auto& save:disc_unreadable) muted(utf8(save).c_str());
         ImGui::TextWrapped("To keep it, go back and turn the title update on, or play another profile.");
-        if(ImGui::Button("Play the disc build anyway")) { close_dialog(); disc_confirmed=true; launch(); }
+        if(secondary("Play the disc build anyway")) { close_dialog(); disc_confirmed=true; launch(); }
       } else if(dialog==Dialog::quit) {
-        ImGui::TextUnformatted("QUIT LAUNCHER?"); if(!changes.empty()) ImGui::TextWrapped("There are unsaved game settings."); modal_focus();
-        if(ImGui::Button("Quit")) { quit=true; close_dialog(); }
-        if(!changes.empty()) { ImGui::SameLine(); if(ImGui::Button("Save settings and quit")) { save_settings(); if(changes.empty()) { quit=true; close_dialog(); } } }
+        dialog_title("Quit the launcher?"); if(!changes.empty()) ImGui::TextWrapped("Some game settings are not saved yet."); modal_focus();
+        if(primary("QUIT",{180,50},true,24)) { quit=true; close_dialog(); }
+        if(!changes.empty()) { ImGui::SameLine(); if(secondary("Save settings and quit",true,{0,50})) { save_settings(); if(changes.empty()) { quit=true; close_dialog(); } } }
       }
       if(dialog!=Dialog::none) {
-        if(dialog!=Dialog::browser) ImGui::Spacing();
         if(dialog==Dialog::save_warning) modal_focus();
-        if(ImGui::Button("Back") || (back&&!child_popup&&!modal_child_before&&!editing_before)) {
-          if(dialog==Dialog::browser) { dialog=package_kind?Dialog::package:Dialog::install; dialog_focus=true; }
+        if(dialog==Dialog::quit||dialog==Dialog::keyboard) ImGui::SameLine(); else ImGui::Spacing();
+        if(secondary("Back",true,{0,dialog==Dialog::quit?50.f:0.f}) || (back&&!child_popup&&!modal_child_before&&!editing_before)) {
+          if(dialog==Dialog::browser&&browser_back!=Dialog::none) { dialog=browser_back; dialog_focus=true; }
           else close_dialog();
         }
       }
-      if(!error.empty()) ImGui::TextWrapped("%s",error.c_str());
+      if(!error.empty()) { ImGui::Spacing(); notice(Mark::bad,error,ImGui::GetContentRegionAvail().x); }
       modal_child_open=ImGui::IsPopupOpen("",ImGuiPopupFlags_AnyPopupId); ImGui::EndPopup();
     }
-    ImGui::Render(); SDL_SetRenderDrawColor(renderer,8,14,20,255); SDL_RenderClear(renderer);
+    ImGui::PopStyleVar();
+    ImGui::Render(); if(review_target) SDL_SetRenderTarget(renderer,review_target);
+    SDL_SetRenderDrawColor(renderer,8,14,20,255); SDL_RenderClear(renderer);
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(),renderer);
     if(review&&!busy && ((smoke_frame<=d&&smoke_frame%2==0)||(smoke_frame>d&&smoke_frame<=d+20&&(smoke_frame-d)%4==0))) {
       auto* surface=SDL_RenderReadPixels(renderer,nullptr);
