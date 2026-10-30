@@ -1,5 +1,5 @@
 // Manual checks of the updater and the content installers (not run by ctest, not shipped).
-// Usage: launcher_update_probe <cd1|cd2> [<package folder> <tag>]   lists one game's GitLab releases and optionally
+// Usage: launcher_update_probe <cd1|cd2> [<package folder> <tag>]   lists one game's GitHub releases and optionally
 //                                                                     installs one, as the Updates dialog does
 //        launcher_update_probe --title-update <cd1|cd2> <install folder> <game folder> <package>
 //        launcher_update_probe --dlc <cd1|cd2> <save folder> <package>    packages, as the launcher installs them

@@ -1,7 +1,7 @@
 # Pacific City Recompiled launcher
 
-The launcher for the [Crackdown](https://gitlab.com/pacific-city-recompiled/crackdown-recomp) and
-[Crackdown 2](https://gitlab.com/pacific-city-recompiled/crackdown-2-recomp) PC recompilations: game file install
+The launcher for the [Crackdown](https://github.com/pacific-city-recompiled/crackdown-recomp) and
+[Crackdown 2](https://github.com/pacific-city-recompiled/crackdown-2-recomp) PC recompilations: game file install
 (disc image or extracted folder, title update, DLC, all checked file by file), settings, save profiles,
 Archipelago and co-op. It ships no game data; players supply their own dump.
 
@@ -9,7 +9,7 @@ Archipelago and co-op. It ships no game data; players supply their own dump.
 
 | CMake option | Output | Used by |
 |---|---|---|
-| `-DLAUNCHER_GAME=` (default) | `CrackdownLauncher.exe` | the combined launcher: both games, updates itself and each game from GitLab releases |
+| `-DLAUNCHER_GAME=` (default) | `CrackdownLauncher.exe` | the combined launcher: both games, updates itself and each game from GitHub releases |
 | `-DLAUNCHER_GAME=cd1` | `CrackdownRecomp.exe` | Crackdown's `Crackdown-Windows-<ver>.zip` |
 | `-DLAUNCHER_GAME=cd2` | `Crackdown2Recomp.exe` | Crackdown 2's `Crackdown2-Windows-<ver>.zip` |
 

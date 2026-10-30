@@ -1142,7 +1142,7 @@ int main(int argc,char** argv) {
     ImGui::SetNextWindowPos({size.x*.5f,size.y*.5f},ImGuiCond_Always,{.5f,.5f});
     if(ImGui::BeginPopupModal("Update preferences",nullptr,ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoTitleBar)) {
       dialog_title("Check for updates?");
-      ImGui::TextWrapped("The launcher can look for new releases on GitLab when it opens. Nothing is requested until you allow it, and you can always check by hand.");
+      ImGui::TextWrapped("The launcher can look for new releases on GitHub when it opens. Nothing is requested until you allow it, and you can always check by hand.");
       muted(("Sources: "+releases_url(cd1_updates)+" (Crackdown and this launcher) and "+releases_url(cd2_updates)+" (Crackdown 2).").c_str());
       auto consent=[&](bool enabled) {
         try { update_config(preferences,{{"auto_updates",enabled?"true":"false"},{"update_consent_asked","true"}}); auto_updates=enabled; ask_updates=false; ImGui::CloseCurrentPopup(); focus_page=true; if(enabled) check_updates(); }

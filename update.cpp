@@ -66,7 +66,7 @@ class JsonReader {
     else if(s[p]=='"') { v.type='s'; v.text=string(); }
     else { size_t start=p; while(p<s.size() && s[p]!=','&&s[p]!=']'&&s[p]!='}' && !std::isspace(static_cast<unsigned char>(s[p]))) ++p; v.text=s.substr(start,p-start);
       if(v.text=="true"||v.text=="false") v.type='b'; else if(v.text=="null") v.type='n';
-      else { // GitLab also has numeric ids; validate JSON number syntax with from_chars.
+      else { // GitHub also has numeric ids; validate JSON number syntax with from_chars.
         size_t q=0; auto digit=[&]{return q<v.text.size()&&v.text[q]>='0'&&v.text[q]<='9';};
         if(q<v.text.size()&&v.text[q]=='-') ++q;
         if(!digit()) fail("Invalid JSON number");
@@ -118,32 +118,22 @@ int compare_versions(const std::string& a,const std::string& b) {
     bool un=digits(u),vn=digits(v); if(un&&vn) return numeric(u)<numeric(v)?-1:1; if(un!=vn) return un?-1:1; return u<v?-1:1;
   } return x.pre.size()==y.pre.size()?0:x.pre.size()<y.pre.size()?-1:1;
 }
-std::string project_url(const UpdateSource& source) { return "https://"+std::string(update_host)+"/"+source.project; }
-std::string releases_url(const UpdateSource& source) { return project_url(source)+"/-/releases"; }
+std::string project_url(const UpdateSource& source) { return "https://"+std::string(update_host)+"/"+source.repository; }
+std::string releases_url(const UpdateSource& source) { return project_url(source)+"/releases"; }
 bool asset_url_allowed(const std::string& url,const UpdateSource& source) {
-  std::string path=source.project; for(size_t i=0;(i=path.find('/',i))!=path.npos;) path.replace(i,1,"%2F");
-  auto api="https://"+std::string(update_host)+"/api/v4/projects/";
-  for(const auto& prefix:{project_url(source)+"/-/releases/",project_url(source)+"/uploads/","https://"+std::string(update_host)+"/-/project/"+source.project_id+"/uploads/",
-                          api+path+"/packages/generic/",api+source.project_id+"/packages/generic/"})
-    if(url.starts_with(prefix)) return url.find("/../")==url.npos&&url.find('\\')==url.npos;
-  return false;
+  return url.starts_with(project_url(source)+"/releases/download/")&&url.find("/../")==url.npos&&url.find('\\')==url.npos;
 }
 std::vector<Release> parse_releases(const std::string& json,const UpdateSource& source) {
   auto root=JsonReader(json).read(); std::vector<Json> objects;
   if(root.type=='a') objects=std::move(root.array); else if(root.type=='o') objects.push_back(std::move(root)); else fail("Invalid release response");
   std::vector<Release> releases;
   for(const auto& j:objects) {
-    if(j.type!='o'||jbool(j,"upcoming_release")) continue;
-    Release r; r.tag=jstr(j,"tag_name"); if(r.tag.empty()) fail("GitLab returned no release tag");
-    r.prerelease=!version(r.tag).pre.empty(); r.notes=jstr(j,"description");
-    if(auto page=j.object.find("_links"); page!=j.object.end()&&page->second.type=='o') r.url=jstr(page->second,"self");
-    const Json* links=nullptr;
-    if(auto assets=j.object.find("assets"); assets!=j.object.end()&&assets->second.type=='o')
-      if(auto l=assets->second.object.find("links"); l!=assets->second.object.end()&&l->second.type=='a') links=&l->second;
-    if(links) {
+    if(j.type!='o'||jbool(j,"draft")) continue;
+    Release r; r.tag=jstr(j,"tag_name"); if(r.tag.empty()) fail("GitHub returned no release tag");
+    r.prerelease=jbool(j,"prerelease")||!version(r.tag).pre.empty(); r.notes=jstr(j,"body"); r.url=jstr(j,"html_url");
+    if(auto assets=j.object.find("assets"); assets!=j.object.end()&&assets->second.type=='a') {
       std::map<std::string,std::string> urls;
-      for(const auto& a:links->array) { auto name=jstr(a,"name"),url=jstr(a,"direct_asset_url"); if(url.empty()) url=jstr(a,"url");
-        if(!urls.emplace(name,url).second) fail("Duplicate release asset"); }
+      for(const auto& a:assets->second.array) { auto name=jstr(a,"name"); if(!urls.emplace(name,jstr(a,"browser_download_url")).second) fail("Duplicate release asset"); }
       for(const auto& [name,url]:urls) if(name.starts_with(source.zip_prefix)&&name.ends_with(".zip")&&urls.contains(name+".sha256")) {
         if(!r.zip_url.empty()) fail("Release has multiple package ZIPs"); r.zip_url=url; r.sha_url=urls.at(name+".sha256");
       }
@@ -235,7 +225,7 @@ void replace_staged(const fs::path& package,const fs::path& staging,const std::f
 namespace {
 struct Internet { HINTERNET h=nullptr; explicit Internet(HINTERNET handle):h(handle) { if(!h) fail("WinHTTP failed: "+std::to_string(GetLastError())); } ~Internet(){WinHttpCloseHandle(h);} };
 std::wstring wide(const std::string& s) { auto p=fs::u8path(s); return p.native(); }
-// Redirects are explicit so HTTPS and the update_host restriction apply at every hop.
+// Redirects are explicit so HTTPS and the GitHub host restriction apply at every hop.
 Bytes request(std::string url,uint64_t limit,const std::atomic_bool& cancel) {
   Internet session(WinHttpOpen(L"CrackdownLauncher/" LAUNCHER_VERSION_W,WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
   WinHttpSetTimeouts(session.h,10000,10000,15000,15000);
@@ -243,18 +233,19 @@ Bytes request(std::string url,uint64_t limit,const std::atomic_bool& cancel) {
     if(cancel) fail("Update cancelled"); auto w=wide(url); URL_COMPONENTS u{}; u.dwStructSize=sizeof(u); u.dwHostNameLength=u.dwUrlPathLength=u.dwExtraInfoLength=DWORD(-1);
     if(!WinHttpCrackUrl(w.c_str(),0,0,&u)||u.nScheme!=INTERNET_SCHEME_HTTPS||u.nPort!=443) fail("Update URL must use HTTPS");
     std::wstring host(u.lpszHostName,u.dwHostNameLength),path(u.lpszUrlPath,u.dwUrlPathLength); if(u.dwExtraInfoLength) path.append(u.lpszExtraInfo,u.dwExtraInfoLength);
-    if(host!=wide(update_host)) fail("Untrusted update host");
+    if(host!=L"api.github.com"&&host!=wide(update_host)&&host!=L"release-assets.githubusercontent.com"&&host!=L"objects.githubusercontent.com") fail("Untrusted update host");
     Internet connection(WinHttpConnect(session.h,host.c_str(),443,0));
     Internet req(WinHttpOpenRequest(connection.h,L"GET",path.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE));
     DWORD policy=WINHTTP_OPTION_REDIRECT_POLICY_NEVER; if(!WinHttpSetOption(req.h,WINHTTP_OPTION_REDIRECT_POLICY,&policy,sizeof(policy))) fail("Cannot restrict redirects");
-    if(!WinHttpSendRequest(req.h,WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(req.h,nullptr)) fail("Update request failed: "+std::to_string(GetLastError()));
+    const wchar_t* headers=L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
+    if(!WinHttpSendRequest(req.h,headers,DWORD(-1),WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(req.h,nullptr)) fail("Update request failed: "+std::to_string(GetLastError()));
     DWORD status=0,size=sizeof(status); if(!WinHttpQueryHeaders(req.h,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&size,WINHTTP_NO_HEADER_INDEX)) fail("Cannot read HTTP status");
     if(status>=300&&status<400) {
       wchar_t location[16384]; size=sizeof(location);
       if(!WinHttpQueryHeaders(req.h,WINHTTP_QUERY_LOCATION,WINHTTP_HEADER_NAME_BY_INDEX,location,&size,WINHTTP_NO_HEADER_INDEX)) fail("Invalid update redirect");
       url=utf8(fs::path(location)); continue;
     }
-    if(status!=200) fail(std::string(update_host)+" HTTP "+std::to_string(status)+" (project may be private or missing)");
+    if(status!=200) fail("GitHub HTTP "+std::to_string(status)+(status==403||status==429?" (rate limited; try again later)":" (repository may be private or missing)"));
     Bytes bytes; unsigned char chunk[65536]; DWORD n=0;
     do { if(cancel) fail("Update cancelled"); if(!WinHttpReadData(req.h,chunk,sizeof(chunk),&n)) fail("Update download failed");
       if(n>limit-bytes.size()) fail("Update download size limit"); bytes.insert(bytes.end(),chunk,chunk+n);
@@ -319,8 +310,8 @@ foreach ($item in $items) {
 #endif
 std::vector<Release> check_releases(bool beta,const std::atomic_bool& cancel,const UpdateSource& source) {
 #ifdef _WIN32
-  // The numeric id keeps working if the project is renamed or moved to another group.
-  auto bytes=request("https://"+std::string(update_host)+"/api/v4/projects/"+source.project_id+"/releases?per_page=20",4*1024*1024,cancel);
+  // A renamed or transferred repository answers with a redirect, which request() follows within its hosts.
+  auto bytes=request("https://api.github.com/repos/"+std::string(source.repository)+"/releases?per_page=20",4*1024*1024,cancel);
   auto releases=parse_releases(std::string(bytes.begin(),bytes.end()),source);
   if(!beta) std::erase_if(releases,[](const auto& r){return r.prerelease;}); return releases;
 #else
@@ -329,7 +320,7 @@ std::vector<Release> check_releases(bool beta,const std::atomic_bool& cancel,con
 }
 void install_release(const Release& release,const fs::path& package,const std::atomic_bool& cancel,const UpdateSource& source) {
 #ifdef _WIN32
-  if(!asset_url_allowed(release.zip_url,source)||!asset_url_allowed(release.sha_url,source)) fail("Release assets do not belong to the configured project");
+  if(!asset_url_allowed(release.zip_url,source)||!asset_url_allowed(release.sha_url,source)) fail("Release assets do not belong to the configured repository");
   auto scratch=package/("launcher-update-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
   if(!fs::create_directory(scratch)) fail("Cannot create update staging directory");
   try {
