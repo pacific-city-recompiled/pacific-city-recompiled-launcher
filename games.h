@@ -21,7 +21,7 @@ struct GameProfile {
   const char* profile_key;  // launcher.toml key for the selected save profile
   const char* disc_hint;
   bool coop, archipelago, title_update, steam;
-  const UpdateSource* updates;  // its GitLab releases (Crackdown 2 installs its runtime into its folder from there)
+  const UpdateSource* updates;  // its GitHub releases (Crackdown 2 installs its runtime into its folder from there)
   uint32_t title_id;            // Xbox title id of its content packages (title update, DLC)
   const char* update_xexp;      // title_update: SHA256 of the supported update's default.xexp
   bool dlc;                     // the launcher installs DLC packs (and passes --dlc_root)
@@ -41,7 +41,7 @@ inline constexpr int kSingleGame = -1;
 #endif
 // Crackdown 2: World multi-language disc (XGD2), default.xex sha256 below. It runs with title update 0.0.5.1
 // applied: default.xexp next to default.xex and the update's files in tu/ (passed as --update_data_root); the
-// launcher installs both from the update package (content.cpp). See the gitlab.com/pacific-city-recompiled/crackdown-2-recomp README.
+// launcher installs both from the update package (content.cpp). See the github.com/pacific-city-recompiled/crackdown-2-recomp README.
 inline constexpr GameProfile kGames[] = {
     {"cd1", "CRACKDOWN", kSingleGame == 0 ? "cd1" : "", "crackdown.exe", "crackdown.toml", "game-manifest.txt",
      "crackdown", "crackdown_", supported_xex, "profile", "Select your supported World multi-language disc image or an extracted game folder.",

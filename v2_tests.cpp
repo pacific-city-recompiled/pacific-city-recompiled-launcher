@@ -41,19 +41,18 @@ void versions() {
   const std::vector<std::string> sequence={"1.0.0-alpha","1.0.0-alpha.1","1.0.0-alpha.beta","1.0.0-beta","1.0.0-beta.2","1.0.0-beta.11","1.0.0-rc.1","1.0.0"};
   for(size_t i=1;i<sequence.size();++i) require(compare_versions(sequence[i-1],sequence[i])<0,"SemVer prerelease order");
   for(const auto& bad:{"","beta1","1.2","01.2.3","1.2.3-01","1.2.3-","1.2.3+","1.2.3\n","18446744073709551616.0.0"}) rejects([&]{compare_versions(bad,"1.0.0");},"invalid version accepted");
-  // GitLab releases API shape: a link with a direct_asset_url, one with only url, source archives, an upcoming release.
-  auto releases=parse_releases(R"([{"name":"1.0","tag_name":"v1.0.0","description":"Notes\n\uD83D\uDE00","upcoming_release":false,"_links":{"self":"https://gitlab.com/pacific-city-recompiled/crackdown-recomp/-/releases/v1.0.0"},"assets":{"count":3,"sources":[{"format":"zip","url":"https://gitlab.com/x.zip"}],"links":[{"id":1,"name":"CrackdownRecomp-beta1.zip","url":"https://gitlab.com/-/project/88052940/uploads/0123456789abcdef0123456789abcdef/CrackdownRecomp-beta1.zip","direct_asset_url":"https://gitlab.com/pacific-city-recompiled/crackdown-recomp/-/releases/v1.0.0/downloads/CrackdownRecomp-beta1.zip","link_type":"package"},{"id":2,"name":"CrackdownRecomp-beta1.zip.sha256","url":"https://gitlab.com/-/project/88052940/uploads/0123456789abcdef0123456789abcdef/CrackdownRecomp-beta1.zip.sha256","link_type":"other"}]}},{"tag_name":"v1.1.0-beta.1","assets":{"count":0,"links":[]}},{"tag_name":"v9.0.0","upcoming_release":true}])");
-  require(releases.size()==2&&releases[0].prerelease&&!releases[1].prerelease,"release history sort, prerelease from tag, upcoming skipped");
-  require(releases[1].zip_url.ends_with("/-/releases/v1.0.0/downloads/CrackdownRecomp-beta1.zip")&&releases[1].sha_url.ends_with("/uploads/0123456789abcdef0123456789abcdef/CrackdownRecomp-beta1.zip.sha256"),"paired assets, direct_asset_url preferred");
-  require(releases[1].notes=="Notes\n\xf0\x9f\x98\x80"&&releases[1].url.ends_with("/-/releases/v1.0.0"),"release notes escapes and page");
-  require(asset_url_allowed(releases[1].zip_url,cd1_updates)&&asset_url_allowed(releases[1].sha_url,cd1_updates),"project asset URLs");
-  for(const auto& url:{"https://gitlab.com/api/v4/projects/88052940/packages/generic/cd/1.0.0/a.zip","https://gitlab.com/api/v4/projects/pacific-city-recompiled%2Fcrackdown-recomp/packages/generic/cd/1.0.0/a.zip","https://gitlab.com/pacific-city-recompiled/crackdown-recomp/uploads/0123/a.zip"})
-    require(asset_url_allowed(url,cd1_updates),"GitLab package and upload URLs");
-  for(const auto& url:{"https://github.com/Unowa001/crackdown-recomp/releases/download/v1.0.0/a.zip","http://gitlab.com/pacific-city-recompiled/crackdown-recomp/-/releases/v1.0.0/downloads/a.zip",
-                       "https://gitlab.com/pacific-city-recompiled/crackdown-recomp-fork/-/releases/v1/downloads/a.zip","https://gitlab.com/-/project/1/uploads/0123/a.zip",
-                       "https://gitlab.com/pacific-city-recompiled/crackdown-recomp/-/releases/../../other/a.zip","https://evil.test/pacific-city-recompiled/crackdown-recomp/-/releases/v1/downloads/a.zip"})
+  // GitHub releases API shape: paired assets, a SemVer prerelease tag, a flagged prerelease, a draft.
+  auto releases=parse_releases(R"([{"id":1,"name":"1.0","tag_name":"v1.0.0","body":"Notes\n😀","draft":false,"prerelease":false,"html_url":"https://github.com/pacific-city-recompiled/crackdown-recomp/releases/tag/v1.0.0","assets":[{"id":11,"name":"CrackdownRecomp-beta1.zip","browser_download_url":"https://github.com/pacific-city-recompiled/crackdown-recomp/releases/download/v1.0.0/CrackdownRecomp-beta1.zip"},{"id":12,"name":"CrackdownRecomp-beta1.zip.sha256","browser_download_url":"https://github.com/pacific-city-recompiled/crackdown-recomp/releases/download/v1.0.0/CrackdownRecomp-beta1.zip.sha256"}]},{"tag_name":"v1.1.0-beta.1","prerelease":false,"assets":[]},{"tag_name":"v1.0.1","prerelease":true,"assets":[]},{"tag_name":"v9.0.0","draft":true,"assets":[]}])");
+  require(releases.size()==3&&releases[0].prerelease&&releases[1].prerelease&&!releases[2].prerelease,"release history sort, prerelease from flag or tag, draft skipped");
+  require(releases[2].zip_url.ends_with("/releases/download/v1.0.0/CrackdownRecomp-beta1.zip")&&releases[2].sha_url.ends_with("/releases/download/v1.0.0/CrackdownRecomp-beta1.zip.sha256"),"paired assets");
+  require(releases[2].notes=="Notes\n\xf0\x9f\x98\x80"&&releases[2].url.ends_with("/releases/tag/v1.0.0"),"release notes escapes and page");
+  require(asset_url_allowed(releases[2].zip_url,cd1_updates)&&asset_url_allowed(releases[2].sha_url,cd1_updates),"repository asset URLs");
+  for(const auto& url:{"https://github.com/Unowa001/crackdown-recomp/releases/download/v1.0.0/a.zip","http://github.com/pacific-city-recompiled/crackdown-recomp/releases/download/v1.0.0/a.zip",
+                       "https://github.com/pacific-city-recompiled/crackdown-recomp-fork/releases/download/v1/a.zip","https://gitlab.com/pacific-city-recompiled/crackdown-recomp/-/releases/v1.0.0/downloads/a.zip",
+                       "https://github.com/pacific-city-recompiled/crackdown-recomp/releases/download/../../other/a.zip","https://evil.test/pacific-city-recompiled/crackdown-recomp/releases/download/v1/a.zip",
+                       "https://github.com/pacific-city-recompiled/crackdown-recomp/archive/refs/tags/v1.0.0.zip"})
     require(!asset_url_allowed(url,cd1_updates),"foreign asset URL rejected");
-  require(!asset_url_allowed(releases[1].zip_url,cd2_updates)&&releases_url(cd2_updates)=="https://gitlab.com/pacific-city-recompiled/crackdown-2-recomp/-/releases","per-game project");
+  require(!asset_url_allowed(releases[2].zip_url,cd2_updates)&&releases_url(cd2_updates)=="https://github.com/pacific-city-recompiled/crackdown-2-recomp/releases","per-game repository");
   for(const auto& bad:{"{","{\"message\":\"Not Found\"}","[]trailing","{\"tag_name\":\"1.0.0\",\"id\":01}","{\"tag_name\":\"1.0.0\",\"id\":nan}","{\"tag_name\":\"1.0.0\",\"tag_name\":\"2.0.0\"}"}) rejects([&]{parse_releases(bad);},"malformed release JSON accepted");
 }
 void sha(const fs::path& home) {
@@ -97,7 +96,7 @@ void staged(const fs::path& home) {
 void cd2(const fs::path& home) {
   require(game_index("cd2")==1&&game_index("crackdown2")==1&&game_index("cd1")==0&&game_index("other")==0,"game ids and Archipelago client names");
   require(kGames[1].archipelago&&kGames[1].dlc&&!kGames[1].coop,"Crackdown 2 features");
-  auto json=R"([{"tag_name":"v0.5.0-beta","assets":{"links":[{"name":"Crackdown2Recomp-beta0.5.0.zip","url":"https://gitlab.com/-/project/88052946/uploads/00/Crackdown2Recomp-beta0.5.0.zip","direct_asset_url":"https://gitlab.com/pacific-city-recompiled/crackdown-2-recomp/-/releases/v0.5.0-beta/downloads/Crackdown2Recomp-beta0.5.0.zip"},{"name":"Crackdown2Recomp-beta0.5.0.zip.sha256","url":"https://gitlab.com/-/project/88052946/uploads/00/Crackdown2Recomp-beta0.5.0.zip.sha256"}]}}])";
+  auto json=R"([{"tag_name":"v0.5.0-beta","prerelease":true,"assets":[{"name":"Crackdown2Recomp-beta0.5.0.zip","browser_download_url":"https://github.com/pacific-city-recompiled/crackdown-2-recomp/releases/download/v0.5.0-beta/Crackdown2Recomp-beta0.5.0.zip"},{"name":"Crackdown2Recomp-beta0.5.0.zip.sha256","browser_download_url":"https://github.com/pacific-city-recompiled/crackdown-2-recomp/releases/download/v0.5.0-beta/Crackdown2Recomp-beta0.5.0.zip.sha256"}]}])";
   auto r=parse_releases(json,cd2_updates);
   require(r.size()==1&&r[0].prerelease&&r[0].zip_url.ends_with("Crackdown2Recomp-beta0.5.0.zip")&&asset_url_allowed(r[0].zip_url,cd2_updates)&&asset_url_allowed(r[0].sha_url,cd2_updates),"Crackdown 2 package asset");
   require(parse_releases(json)[0].zip_url.empty(),"Crackdown 1 ignores Crackdown 2 packages");
