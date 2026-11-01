@@ -13,6 +13,10 @@ users with the next CD1 and CD2 release that bundles this launcher.
   Start finishes.
 - Home page: a save profile button next to PLAY (Y), Start plays, X opens Settings. Footer hints follow the page.
 - B on home opens Quit again (the same press used to close it in the same frame), with focus on Back.
+- Archipelago with a controller: when the profile is Default, a "Create a profile for this seed" button opens the
+  name keyboard. Server is a picker. "archipelago.gg" needs only the port (number pad, saved as
+  archipelago.gg:<port>), and "Custom address" takes any host:port with the full keyboard. Existing non-archipelago.gg
+  servers open on Custom. With a pad the separate Keyboard buttons are hidden, and the keyboard returns focus to its box.
 - A controller plugged in at start shows its button hints from the first frame.
 - LT + RT or F11 switches fullscreen. Gameplay > Advanced has "Open the launcher fullscreen" (`launcher_fullscreen`)
   and "Start the game right away" (`quick_start`: 3 s countdown, any button stops it). `--fullscreen` arg.

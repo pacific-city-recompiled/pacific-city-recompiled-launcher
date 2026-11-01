@@ -255,6 +255,8 @@ int main(int argc,char** argv) {
   read_user();
   // Archipelago settings belong to the selected (named) profile: one profile per seed.
   ApConnection ap; char ap_server[128]{},ap_slot[64]{},ap_password[128]{}; std::string ap_bound;
+  // Server as entered: archipelago.gg plus a port (ap_host 0) or any address (1); -1: work it out from ap_server.
+  int ap_host=-1; char ap_port[8]{};
   // --connect <archipelago:// link> (from the Archipelago Launcher). It waits on the ARCHIPELAGO tab
   // until the player applies it to the profile they choose; it then replaces server, slot and password.
   std::optional<ApConnection> ap_link;
@@ -269,12 +271,15 @@ int main(int argc,char** argv) {
     catch(const std::exception& e) { error=e.what(); }
     std::snprintf(ap_server,sizeof(ap_server),"%s",ap.server.c_str()); std::snprintf(ap_slot,sizeof(ap_slot),"%s",ap.slot.c_str());
     std::snprintf(ap_password,sizeof(ap_password),"%s",ap.password.c_str());
+    ap_host=-1;
   };
-  auto save_ap=[&] { ap.server=ap_server; ap.slot=ap_slot; ap.password=ap_password; save_ap_connection(profile_folder(user,profile),ap); };
+  auto save_ap=[&] {
+    if(ap_host==0) { if(ap_port[0]) std::snprintf(ap_server,sizeof(ap_server),"archipelago.gg:%s",ap_port); else ap_server[0]=0; }
+    ap.server=ap_server; ap.slot=ap_slot; ap.password=ap_password; save_ap_connection(profile_folder(user,profile),ap); };
   load_ap();
   if(gp->dlc) dlc_packs=list_content_dlc(user,gp->title_id);
   // The on-screen keyboard (controller text entry) edits one buffer at a time.
-  struct Keyboard { char* text; size_t size; const char* title; bool secret=false,ap=false,coop=false,create=false; } keyboard{new_profile,sizeof(new_profile),"PROFILE NAME"};
+  struct Keyboard { char* text; size_t size; const char* title; bool secret=false,ap=false,coop=false,create=false,digits=false; } keyboard{new_profile,sizeof(new_profile),"PROFILE NAME"};
   // An import or a newly selected folder gets the full hash check once; startup re-checks quickly.
   // title_update / dlc_pack install a content package (content.cpp) and keep the game's verified state.
   enum class Job { import_iso, full_check, quick_check, title_update, dlc_pack };
@@ -1097,6 +1102,7 @@ int main(int argc,char** argv) {
             else {
               ap.enabled=true;
               std::snprintf(ap_server,sizeof(ap_server),"%s",ap_link->server.c_str()); std::snprintf(ap_slot,sizeof(ap_slot),"%s",ap_link->slot.c_str());
+              ap_host=1;  // keep the link's server as given
               std::snprintf(ap_password,sizeof(ap_password),"%s",ap_link->password.c_str());
               try { save_ap(); ap_link.reset(); error.clear(); } catch(const std::exception& e) { error=e.what(); }
             }
@@ -1117,7 +1123,7 @@ int main(int argc,char** argv) {
           if(secondary("Create",new_profile[0]!=0)) {
             try { create_profile(user,new_profile); profiles=list_profiles(user); save_profile(new_profile); new_profile[0]=0; error.clear(); } catch(const std::exception& e) { error=e.what(); }
           }
-          if(link("Type with the controller")) { keyboard={new_profile,sizeof(new_profile),"PROFILE NAME"}; show_dialog(Dialog::keyboard); }
+          if(device=="keyboard"&&link("Type with the controller")) { keyboard={new_profile,sizeof(new_profile),"PROFILE NAME"}; show_dialog(Dialog::keyboard); }
           row("Saves folder");
           if(secondary("Open saves folder")) {
             try { (void)profile_args(user,profile); auto dir=profile.empty()?user:user/"profiles"/fs::u8path(profile); fs::create_directories(dir); show_folder(dir); } catch(const std::exception& e) { error=e.what(); }
@@ -1128,7 +1134,10 @@ int main(int argc,char** argv) {
         if(gp->archipelago) {
           section("ARCHIPELAGO");
           bool named=!user.empty()&&!profile.empty();
-          if(!named&&!ap_link) notice(Mark::warn,"Archipelago needs its own save profile, one per seed. Create or choose one above.",ImGui::GetContentRegionAvail().x);
+          if(!named&&!ap_link) {
+            notice(Mark::warn,"Archipelago needs its own save profile, one per seed. Create or choose one above.",ImGui::GetContentRegionAvail().x);
+            if(!user.empty()&&secondary("Create a profile for this seed",!blocked)) { new_profile[0]=0; keyboard={new_profile,sizeof(new_profile),"NEW PROFILE NAME",false,false,false,true}; show_dialog(Dialog::keyboard); }
+          }
           ImGui::BeginDisabled(blocked||!named);
           bool edited=false;
           if(rows("archipelago")) {
@@ -1138,10 +1147,27 @@ int main(int argc,char** argv) {
               row(label); ImGui::PushID(id);
               ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x,420*s)-ImGui::CalcTextSize("Keyboard").x-2*style.FramePadding.x-style.ItemSpacing.x);
               text_box("##field",hint,text,cap,{text,cap,label,secret,true},secret?ImGuiInputTextFlags_Password:0); edited|=ImGui::IsItemDeactivatedAfterEdit();
-              ImGui::SameLine(); if(secondary("Keyboard")) { keyboard={text,cap,label,secret,true}; show_dialog(Dialog::keyboard); }
+              if(device=="keyboard") { ImGui::SameLine(); if(secondary("Keyboard")) { keyboard={text,cap,label,secret,true}; show_dialog(Dialog::keyboard); } }  // a pad's A on the box opens it
               ImGui::PopID();
             };
-            field("Server","archipelago.gg:38281",ap_server,sizeof(ap_server),false,"server");
+            // Rooms on archipelago.gg only need their port; anything else is typed in full.
+            if(ap_host<0) {
+              std::string server=ap_server; const std::string gg="archipelago.gg:";
+              ap_host=server.empty()||server.starts_with(gg)?0:1;
+              std::snprintf(ap_port,sizeof(ap_port),"%s",ap_host==0&&server.size()>gg.size()?server.substr(gg.size()).c_str():"");
+            }
+            row("Server","archipelago.gg rooms only need the port from the room page.");
+            if(choice("##aphost",&ap_host,"archipelago.gg\0Custom address\0")) {
+              if(ap_host==1&&!ap_server[0]) std::snprintf(ap_server,sizeof(ap_server),"archipelago.gg:%s",ap_port);
+              edited=true;
+            }
+            if(ap_host==0) {
+              row("Port","The number after archipelago.gg: on the room page, e.g. 38281."); ImGui::PushID("port");
+              ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x,420*s)-ImGui::CalcTextSize("Keyboard").x-2*style.FramePadding.x-style.ItemSpacing.x);
+              text_box("##field","38281",ap_port,sizeof(ap_port),{ap_port,sizeof(ap_port),"PORT",false,true,false,false,true},ImGuiInputTextFlags_CharsDecimal); edited|=ImGui::IsItemDeactivatedAfterEdit();
+              if(device=="keyboard") { ImGui::SameLine(); if(secondary("Keyboard")) { keyboard={ap_port,sizeof(ap_port),"PORT",false,true,false,false,true}; show_dialog(Dialog::keyboard); } }
+              ImGui::PopID();
+            } else field("Address","host:port, e.g. 192.168.1.20:38281",ap_server,sizeof(ap_server),false,"server");
             field("Slot name","Your player name in the seed",ap_slot,sizeof(ap_slot),false,"slot");
             field("Password","Leave empty if the room has none",ap_password,sizeof(ap_password),true,"password");
             ImGui::EndTable();
@@ -1302,7 +1328,8 @@ int main(int argc,char** argv) {
     ImGui::SetNextWindowPos({size.x*.5f,size.y*.5f},ImGuiCond_Always,{.5f,.5f});
     if(ImGui::BeginPopupModal("Launcher action",nullptr,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize)) {
       bool child_popup=ImGui::IsPopupOpen("",ImGuiPopupFlags_AnyPopupId);
-      auto close_dialog=[&] { ImGui::CloseCurrentPopup(); dialog=Dialog::none; focus_page=true; };
+      // The on-screen keyboard hands focus back to the box it typed into (ImGui restores it); other dialogs reset the page.
+      auto close_dialog=[&] { ImGui::CloseCurrentPopup(); if(dialog!=Dialog::keyboard) focus_page=true; dialog=Dialog::none; };
       auto modal_focus=[&] { if(dialog_focus) { ImGui::SetKeyboardFocusHere(); dialog_focus=false; } };
       if(dialog==Dialog::install) {
         dialog_title("Install game"); ImGui::TextWrapped("%s",gp->disc_hint); muted("Your source files are kept in place.");
@@ -1345,18 +1372,19 @@ int main(int argc,char** argv) {
         ImGui::Text("%s_",k.secret?std::string(n,'*').c_str():k.text); ImGui::EndChild(); ImGui::PopStyleVar(); ImGui::PopStyleColor();
         modal_focus();
         auto type=[&](char c) { if(n<k.size-1) { k.text[n]=c; k.text[++n]=0; } };
-        const char* keys=k.ap||k.coop?"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:/@!#$%&*+=?~":"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.";
+        const char* keys=k.digits?"1234567890":k.ap||k.coop?"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.:/@!#$%&*+=?~":"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.";
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{6*s,6*s});
         for(size_t i=0;keys[i];++i) { if(i%13) ImGui::SameLine(); char label[]={keys[i],0}; ImGui::PushID(static_cast<int>(i)); if(ImGui::Button(label,{46*s,40*s})) type(keys[i]); ImGui::PopID(); }
         ImGui::PopStyleVar();
-        if(secondary("Space",true,{120,0})) type(' '); ImGui::SameLine();
+        if(!k.digits) { if(secondary("Space",true,{120,0})) type(' '); ImGui::SameLine(); }
         bool pad=device!="keyboard";
         if(secondary("Backspace",true,{140,0})||(pad&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft,true))) { if(n) k.text[--n]=0; } ImGui::SameLine();
         // Y types a space; owning it stops ImGui's navigation from also pressing the focused key with it.
         ImGui::SetKeyOwner(ImGuiKey_GamepadFaceUp,ImGui::GetID("##keyboard_y"));
-        if(pad&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp,true)) type(' ');
+        if(pad&&!k.digits&&ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp,true)) type(' ');
         if(primary("DONE",{140,0},true,22)||(pad&&ImGui::IsKeyPressed(ImGuiKey_GamepadStart,false))) {
           if(k.coop) coop_typed=true;
+          if(k.create) focus_page=true;  // the button it came from is gone once a profile exists
           if(k.create&&new_profile[0]) { try { create_profile(user,new_profile); profiles=list_profiles(user); save_profile(new_profile); new_profile[0]=0; error.clear(); } catch(const std::exception& e) { error=e.what(); } }
           if(k.ap) { try { save_ap(); error.clear(); } catch(const std::exception& e) { error=e.what(); } }
           close_dialog();
