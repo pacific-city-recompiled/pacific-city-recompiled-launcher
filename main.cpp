@@ -166,6 +166,9 @@ int main(int argc,char** argv) {
   io.ConfigNavEscapeClearFocusWindow=false;
   auto visuals=std::make_unique<Visuals>(renderer,home);
   ImGui_ImplSDL3_InitForSDLRenderer(window,renderer); ImGui_ImplSDLRenderer3_Init(renderer);
+  // Every controller drives the launcher, not only the first one SDL lists (Steam Input, DS4Windows and the
+  // --pad-script test pad add their own).
+  ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
   // One launcher, several games (games.h): the selected game decides the folder, exe, settings file, manifest,
   // save folder and log prefix. launcher.toml stays shared.
   fs::path preferences=home/"launcher.toml";
