@@ -124,17 +124,22 @@ void Visuals::logo(float height,const char* fallback) {
     ImGui::TextColored({.45f,.78f,.18f,1},"%s",text.substr(space+1).c_str());
   } else ImGui::TextUnformatted(text.c_str());
   ImGui::PopFont();
-}void Visuals::hints(const std::string& device,float scale) {
-  float width=4*(28*scale+5*scale)+3*ImGui::GetStyle().ItemSpacing.x;
-  for(const char* label:{"Select","Back","Previous page","Next page"}) width+=ImGui::CalcTextSize(label).x;
+}void Visuals::hints(const std::string& device,float scale,std::initializer_list<Hint> items) {
+  // Keyboard-only hints (empty key) are left out when the keyboard is in use.
+  const bool keys=device=="keyboard";
+  float width=0; int shown=0;
+  for(const auto& h:items) { if(keys&&!*h.key) continue; width+=28*scale+5*scale+ImGui::CalcTextSize(h.label).x; ++shown; }
+  width+=std::max(0,shown-1)*ImGui::GetStyle().ItemSpacing.x;
   ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(),ImGui::GetWindowWidth()-ImGui::GetStyle().WindowPadding.x-width));
   const float base=ImGui::GetCursorPosY(), text_y=base+(28*scale-ImGui::GetTextLineHeight())*.5f;
-  auto hint=[&](const char* pad,const char* key,const char* label) {
-    std::string path=device+"/"+(device=="keyboard"?key:pad)+".png";
+  bool first=true;
+  for(const auto& h:items) {
+    if(keys&&!*h.key) continue;
+    if(!first) ImGui::SameLine(); first=false;
+    std::string path=device+"/"+(keys?h.key:h.pad)+".png";
     if(!glyphs_.contains(path)) { try { glyphs_[path]=decode(read_bytes(home_/"assets/glyphs"/fs::u8path(path),1024*1024)); } catch(...) { glyphs_[path]=nullptr; } }
     if(auto* t=glyphs_[path]) { ImGui::SetCursorPosY(base); ImGui::Image(id(t),{28*scale,28*scale}); ImGui::SameLine(0,6*scale); }
-    ImGui::SetCursorPosY(text_y); ImGui::TextUnformatted(label);
-  };
-  hint("a","Enter","Select"); ImGui::SameLine(); hint("b","Escape","Back"); ImGui::SameLine(); hint("lb","Q","Previous page"); ImGui::SameLine(); hint("rb","E","Next page");
+    ImGui::SetCursorPosY(text_y); ImGui::TextUnformatted(h.label);
+  }
 }
 }

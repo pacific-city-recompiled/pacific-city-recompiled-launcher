@@ -2,6 +2,7 @@
 #include "v2.h"
 #include <SDL3/SDL.h>
 #include <imgui.h>
+#include <initializer_list>
 #include <map>
 namespace launcher {
 class Visuals {
@@ -15,7 +16,9 @@ class Visuals {
   // The game's logo from its verified files, height in pixels; without art, the title in the heading font.
   void logo(float height,const char* fallback);
   bool has_logo() const { return logo_!=nullptr; }
-  void hints(const std::string& device,float scale);
+  // Footer button hints: controller glyph name, keyboard key name (empty: controller only), label.
+  struct Hint { const char* pad; const char* key; const char* label; };
+  void hints(const std::string& device,float scale,std::initializer_list<Hint> items);
   ImFont* heading=nullptr;
   ImFont* body=nullptr;
   ImFont* title=nullptr;   // section titles and page tabs (Barlow Condensed SemiBold)
