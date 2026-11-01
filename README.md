@@ -34,6 +34,9 @@ Headless commands for unattended tests: `--install-iso <iso> <game home>`, `--in
 `--install-dlc <package> <save folder>`, `--verify-folder <folder> <manifest> [--full]`, and `--play` (press PLAY
 once the files are verified). `--review-ui <folder> <width> <height> [--game <id>] [--connect <link>]` renders every
 page and dialog offscreen (no window shows) and saves the frames as BMPs, for screenshot reviews.
+Add `--pad-script <file>` to drive it with a virtual controller instead: one step per line (`a b x y start back lb rb
+up down left right`, `wait <frames>`, `shot <name>` saves `<name>.bmp`, `#` comments). `--fullscreen` opens the
+launcher fullscreen.
 
 ## Layout
 
@@ -41,5 +44,12 @@ Home has the game's logo, a one-line status, one PLAY button (INSTALL when somet
 A new install starts with a short guided setup: disc, then title update, then DLC. Settings are four pages (Display,
 Gameplay, Saves & Archipelago, About) that save on their own; rare and debug options sit under each page's Advanced
 fold.
+
+Everything works with a controller, for couch players and app launchers like Quiver: the D-pad or stick moves, A selects,
+B goes back, LB / RB switch pages, left / right change a setting in place, and A on a text box opens the on-screen
+keyboard (X deletes, Y types a space, Start finishes). On the home page Start plays, X opens Settings and Y the save
+profile; LT + RT (or F11) switches fullscreen. Gameplay > Advanced can open the launcher fullscreen and start the game
+right away after a 3 second countdown that any button stops. The launcher hides while the game runs and comes back,
+with the controller, when it closes.
 
 History before the move is from crackdown-recomp's `crackdown/launcher` folder (kept with `git subtree split`).
