@@ -12,7 +12,8 @@ users with the next CD1 and CD2 release that bundles this launcher.
   it too. In the keyboard, X deletes, Y types a space (key-owned so it doesn't also press the focused key) and
   Start finishes.
 - Home page: a save profile button next to PLAY (Y), Start plays, X opens Settings. Footer hints follow the page.
-- B on home opens Quit again (the same press used to close it in the same frame).
+- B on home opens Quit again (the same press used to close it in the same frame), with focus on Back.
+- A controller plugged in at start shows its button hints from the first frame.
 - LT + RT or F11 switches fullscreen. Gameplay > Advanced has "Open the launcher fullscreen" (`launcher_fullscreen`)
   and "Start the game right away" (`quick_start`: 3 s countdown, any button stops it). `--fullscreen` arg.
 - The launcher hides while the game runs, then shows again and takes focus when the game exits. Pad input is read

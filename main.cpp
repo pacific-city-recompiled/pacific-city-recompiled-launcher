@@ -354,6 +354,8 @@ int main(int argc,char** argv) {
   // The launcher owns the controller unless another program took focus from it (not the game it started, not
   // its own file picker); a closing game hands it back.
   bool pad_owner=true;
+  // A controller already plugged in: show its buttons from the first frame, not the keyboard's.
+  { int count=0; if(auto* pads=SDL_GetGamepads(&count)) { if(count>0) { auto type=SDL_GetGamepadTypeForID(pads[0]); device=type==SDL_GAMEPAD_TYPE_PS3||type==SDL_GAMEPAD_TYPE_PS4||type==SDL_GAMEPAD_TYPE_PS5?"ps5":"xbox_series"; } SDL_free(pads); } }
   // Quick start (launcher.toml quick_start): once the startup check passes, the game starts after a short
   // countdown that any button stops. Not with a room link, which needs the Saves page first.
   bool quick_pending=quick_start&&!review&&!ap_link_given; uint64_t quick_at=0;
@@ -1417,12 +1419,12 @@ int main(int argc,char** argv) {
         ImGui::Spacing();
         if(secondary("New profile...")) { new_profile[0]=0; keyboard={new_profile,sizeof(new_profile),"NEW PROFILE NAME",false,false,false,true}; dialog=Dialog::keyboard; dialog_focus=true; }
       } else if(dialog==Dialog::quit) {
-        dialog_title("Quit the launcher?"); if(!changes.empty()) ImGui::TextWrapped("Some game settings are not saved yet."); modal_focus();
+        dialog_title("Quit the launcher?"); if(!changes.empty()) ImGui::TextWrapped("Some game settings are not saved yet.");
         if(primary("QUIT",{180,50},true,24)) { quit=true; close_dialog(); }
         if(!changes.empty()) { ImGui::SameLine(); if(secondary("Save settings and quit",true,{0,50})) { save_settings(); if(changes.empty()) { quit=true; close_dialog(); } } }
       }
       if(dialog!=Dialog::none) {
-        if(dialog==Dialog::save_warning) modal_focus();
+        if(dialog==Dialog::save_warning||dialog==Dialog::quit) modal_focus();  // Back first: B then A mustn't quit
         if(dialog==Dialog::quit||dialog==Dialog::keyboard) ImGui::SameLine(); else ImGui::Spacing();
         if(secondary("Back",true,{0,dialog==Dialog::quit?50.f:0.f}) || (back&&!child_popup&&!modal_child_before&&!editing_before)) {
           if(dialog==Dialog::browser&&browser_back!=Dialog::none) { dialog=browser_back; dialog_focus=true; }
